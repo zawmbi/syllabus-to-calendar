@@ -6,6 +6,10 @@
 *.swp
 .buildlog/
 .history
+node_modules/
+.expo/
+.expo-shared/
+dist/
 
 
 

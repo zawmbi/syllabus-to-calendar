@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Syllabus to Calendar",
+    "slug": "syllabus-to-calendar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Allow access to photos so you can import a scanned syllabus image.",
+        "NSCalendarsUsageDescription": "Allow calendar access so the app can add syllabus dates to your calendar."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F0E6"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-document-picker",
+      "expo-calendar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow access to photos so you can import a scanned syllabus image."
+        }
+      ]
+    ]
+  }
+}
