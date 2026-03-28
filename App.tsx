@@ -2,7 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Platform,
@@ -20,7 +20,18 @@ import {
   beginNotionExport,
   exportToDeviceCalendar,
 } from "./src/services/exporters";
+import {
+  beginGoogleOAuth,
+  beginNotionOAuth,
+  fetchIntegrationStatus,
+} from "./src/services/integrations";
 import { parseSyllabus } from "./src/services/parser";
+import {
+  configurePurchases,
+  getPremiumStatus,
+  purchaseForeverUnlock,
+  restoreForeverUnlock,
+} from "./src/services/purchases";
 import type { ExportTarget, ImportedFile, ParsedItem } from "./src/types";
 
 const palette = {
@@ -79,6 +90,10 @@ function formatDisplayDate(rawDate: string) {
   });
 }
 
+function createSessionId() {
+  return `session-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
 function AppContent() {
   const [fontsLoaded] = useFonts({
     Alice: require("./Alice/Alice-Regular.ttf"),
@@ -91,21 +106,109 @@ function AppContent() {
   const [isParsing, setIsParsing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [parseMode, setParseMode] = useState<"demo" | "live" | null>(null);
+  const [sessionId] = useState(createSessionId);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [notionConnected, setNotionConnected] = useState(false);
+  const [notionWorkspaceName, setNotionWorkspaceName] = useState<string | null>(null);
+  const [isRefreshingConnections, setIsRefreshingConnections] = useState(false);
+  const [isPremiumUnlocked, setIsPremiumUnlocked] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const integrationSummary = useMemo(
     () => [
       hasLiveParsing() ? "Live parsing API connected" : "Demo parsing mode",
-      hasGoogleExport() ? "Google export endpoint ready" : "Google opens event draft",
-      "Apple/Android device calendar export enabled",
-      hasNotionExport() ? "Notion export endpoint ready" : "Notion awaits backend connection",
+      googleConnected
+        ? "Google connected"
+        : hasGoogleExport()
+          ? "Google export ready"
+          : "Google draft fallback",
+      notionConnected
+        ? `Notion connected${notionWorkspaceName ? ` to ${notionWorkspaceName}` : ""}`
+        : hasNotionExport()
+          ? "Notion export ready"
+          : "Notion backend needed",
     ],
-    [],
+    [googleConnected, notionConnected, notionWorkspaceName],
   );
+
+  const refreshConnections = async () => {
+    setIsRefreshingConnections(true);
+
+    try {
+      const status = await fetchIntegrationStatus(sessionId);
+      setGoogleConnected(status.googleConnected);
+      setNotionConnected(status.notionConnected);
+      setNotionWorkspaceName(status.notionWorkspaceName);
+    } catch {
+      setGoogleConnected(false);
+      setNotionConnected(false);
+      setNotionWorkspaceName(null);
+    } finally {
+      setIsRefreshingConnections(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshConnections();
+  }, []);
+
+  useEffect(() => {
+    const setupPurchases = async () => {
+      try {
+        const configured = await configurePurchases(sessionId);
+
+        if (configured) {
+          const unlocked = await getPremiumStatus();
+          setIsPremiumUnlocked(unlocked);
+        }
+      } catch {
+        setIsPremiumUnlocked(false);
+      }
+    };
+
+    void setupPurchases();
+  }, [sessionId]);
 
   const applyImportedFile = (file: ImportedFile) => {
     setImportedFile(file);
     setParsedItems([]);
     setParseMode(null);
+  };
+
+  const handleUseSampleSyllabus = () => {
+    applyImportedFile({
+      name: "sample-course-syllabus.pdf",
+      typeLabel: "PDF",
+      source: "document",
+      uri: "demo://sample-syllabus",
+      mimeType: "application/pdf",
+    });
+  };
+
+  const handleUnlockPremium = () => {
+    const runPurchase = async () => {
+      setIsPurchasing(true);
+
+      try {
+        const unlocked = await purchaseForeverUnlock();
+        setIsPremiumUnlocked(unlocked);
+        Alert.alert(
+          unlocked ? "Unlocked" : "Purchase pending",
+          unlocked
+            ? "Unlimited syllabus uploads are now unlocked forever."
+            : "The purchase did not unlock the entitlement yet.",
+        );
+      } catch (error) {
+        Alert.alert(
+          "Purchase failed",
+          error instanceof Error ? error.message : "Could not complete the purchase.",
+        );
+      } finally {
+        setIsPurchasing(false);
+      }
+    };
+
+    void runPurchase();
   };
 
   const handlePickDocument = async () => {
@@ -196,10 +299,7 @@ function AppContent() {
     setSelectedTarget(target);
 
     if (!parsedItems.length) {
-      Alert.alert(
-        "Parse first",
-        "Analyze the syllabus first so there are actual events to export.",
-      );
+      Alert.alert("Parse first", "Analyze the syllabus before exporting it.");
       return;
     }
 
@@ -208,34 +308,18 @@ function AppContent() {
     try {
       if (target === "Apple Calendar") {
         await exportToDeviceCalendar(parsedItems);
-        Alert.alert(
-          "Calendar updated",
-          `Added ${parsedItems.length} items to your device calendar.`,
-        );
+        Alert.alert("Calendar updated", `Added ${parsedItems.length} items.`);
       } else if (target === "Google Calendar") {
-        await beginGoogleExport(parsedItems);
-        Alert.alert(
-          "Google Calendar",
-          hasGoogleExport()
-            ? "Opening the connected Google export flow."
-            : "Opening a Google Calendar event draft. Add a backend to create all events automatically.",
-        );
+        await beginGoogleExport(parsedItems, sessionId);
+        Alert.alert("Google Calendar", "Export sent to Google.");
       } else {
-        await beginNotionExport(parsedItems);
-        Alert.alert(
-          "Notion export",
-          "Sent parsed syllabus items to your Notion export endpoint.",
-        );
+        await beginNotionExport(parsedItems, sessionId);
+        Alert.alert("Notion", "Export sent to Notion.");
       }
     } catch (error) {
-      const fallbackMessage =
-        target === "Notion"
-          ? "Connect a Notion export endpoint first."
-          : "Please try the export again.";
-
       Alert.alert(
         `${target} export`,
-        error instanceof Error ? error.message : fallbackMessage,
+        error instanceof Error ? error.message : "Please try again.",
       );
     } finally {
       setIsExporting(false);
@@ -260,220 +344,277 @@ function AppContent() {
           <View style={styles.contentColumn}>
             <Text style={styles.eyebrow}>Syllabus planner</Text>
             <Text style={styles.heroTitle}>
-              Turn any syllabus into a calm, organized semester.
+              Turn one syllabus into a clean semester plan.
             </Text>
             <Text style={styles.heroBody}>
-              Import a PDF, JPEG, HEIC, or photo scan, extract important dates,
-              homework, and exams, then send them into Google Calendar, Apple
-              Calendar, or Notion.
+              One syllabus free. More than one is a one-time $5 unlock forever.
             </Text>
 
-            <View style={styles.uploadCard}>
-              <View style={styles.uploadHeaderRow}>
-                <View style={styles.uploadHeaderText}>
-                  <Text style={styles.cardTitle}>Import your syllabus</Text>
-                  <Text style={styles.cardBody}>
-                    Designed for iOS and Android with a cleaner, centered flow.
+            <View style={styles.heroCard}>
+              <View style={styles.heroCardTop}>
+                <View style={styles.metricPill}>
+                  <Text style={styles.metricLabel}>Uploads</Text>
+                  <Text style={styles.metricValue}>
+                    {isPremiumUnlocked ? "Unlimited" : "1 free"}
                   </Text>
                 </View>
-                <View style={styles.fileBadge}>
-                  <Text style={styles.fileBadgeText}>4 formats</Text>
+                <View style={styles.metricPill}>
+                  <Text style={styles.metricLabel}>Mode</Text>
+                  <Text style={styles.metricValue}>
+                    {parseMode === "live" ? "Live" : "Ready"}
+                  </Text>
+                </View>
+                <View style={styles.metricPill}>
+                  <Text style={styles.metricLabel}>Export</Text>
+                  <Text style={styles.metricValue}>{selectedTarget}</Text>
                 </View>
               </View>
 
-              <View style={styles.dropZone}>
-                <View style={styles.dropIcon}>
-                  <View style={styles.dropIconInner} />
-                </View>
-                <Text style={styles.dropZoneTitle}>
-                  {importedFile ? "Syllabus ready to analyze" : "Choose how to import"}
-                </Text>
-                <Text style={styles.dropZoneBody}>
-                  {importedFile
-                    ? `${importedFile.name} imported from ${importedFile.source === "photo" ? "Photos" : "Files"} as ${importedFile.typeLabel}.`
-                    : "Start with a document or a photo. Then we can pull out semester dates into structured events."}
-                </Text>
+              <Text style={styles.cardTitle}>Import and analyze</Text>
+              <Text style={styles.cardBody}>
+                PDF, JPEG, HEIC, or photo scan. Keep the first run free, then unlock unlimited syllabi for $5 forever.
+              </Text>
 
-                <View style={styles.buttonRow}>
-                  <Pressable
-                    onPress={handlePickDocument}
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      pressed && styles.primaryButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.primaryButtonText}>
-                      {isImporting ? "Importing..." : "Choose file"}
-                    </Text>
-                  </Pressable>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  onPress={handlePickDocument}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed && styles.primaryButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {isImporting ? "Importing..." : "Choose file"}
+                  </Text>
+                </Pressable>
 
-                  <Pressable
-                    onPress={handlePickPhoto}
-                    style={({ pressed }) => [
-                      styles.secondaryButton,
-                      pressed && styles.secondaryButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.secondaryButtonText}>Choose photo</Text>
-                  </Pressable>
+                <Pressable
+                  onPress={handlePickPhoto}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.secondaryButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>Choose photo</Text>
+                </Pressable>
 
-                  <Pressable
-                    onPress={handleParse}
-                    style={({ pressed }) => [
-                      styles.secondaryButton,
-                      styles.parseButton,
-                      pressed && styles.secondaryButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.secondaryButtonText}>
-                      {isParsing ? "Analyzing..." : "Analyze syllabus"}
-                    </Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  onPress={handleUseSampleSyllabus}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.secondaryButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>Sample</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleParse}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    styles.parseButton,
+                    pressed && styles.secondaryButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {isParsing ? "Analyzing..." : "Analyze"}
+                  </Text>
+                </Pressable>
               </View>
 
-              {importedFile ? (
-                <View style={styles.selectionCard}>
-                  <Text style={styles.sectionLabel}>Imported syllabus</Text>
-                  <Text style={styles.selectionTitle}>{importedFile.name}</Text>
-                  <Text style={styles.selectionMeta}>
-                    {importedFile.typeLabel} • {parseMode === "live" ? "Live parsing" : "Waiting to analyze"}
-                  </Text>
-                </View>
-              ) : null}
+              <View style={styles.filenameRow}>
+                <Text style={styles.filenameText}>
+                  {importedFile ? importedFile.name : "No syllabus selected yet"}
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.grid}>
-              <View style={[styles.infoCard, styles.tallCard]}>
-                <Text style={styles.sectionLabel}>Extraction results</Text>
-                <Text style={styles.infoTitle}>
-                  Important dates, homework, and exams
-                </Text>
-                <Text style={styles.cardBody}>
-                  The app keeps routine syllabus clutter from overwhelming the
-                  high-value dates you actually need to see.
-                </Text>
-
-                <View style={styles.heatmap}>
-                  {[
-                    palette.blush,
-                    palette.blush,
-                    palette.blush,
-                    palette.sage,
-                    palette.forest,
-                    palette.blush,
-                    palette.olive,
-                    palette.blush,
-                    palette.accent,
-                    palette.forest,
-                    palette.blush,
-                    palette.sage,
-                  ].map((color, index) => (
-                    <View
-                      key={index}
-                      style={[styles.heatCell, { backgroundColor: color }]}
-                    />
-                  ))}
+            <View style={styles.mainCard}>
+              <View style={styles.compactRow}>
+                <View style={styles.halfCard}>
+                  <Text style={styles.sectionLabel}>Results</Text>
+                  <Text style={styles.infoTitle}>Key items</Text>
+                  <View style={styles.heatmap}>
+                    {[palette.blush, palette.sage, palette.forest, palette.olive, palette.accent, palette.forest].map(
+                      (color, index) => (
+                        <View
+                          key={index}
+                          style={[styles.heatCell, { backgroundColor: color }]}
+                        />
+                      ),
+                    )}
+                  </View>
+                  {parsedItems.length ? (
+                    <View style={styles.parsedList}>
+                      {parsedItems.slice(0, 3).map((item) => (
+                        <View key={`${item.title}-${item.date}`} style={styles.parsedRow}>
+                          <Text style={styles.parsedTitle}>{item.title}</Text>
+                          <Text style={styles.parsedMeta}>
+                            {item.type} • {formatDisplayDate(item.date)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.emptyStateText}>
+                      Analyze a syllabus to see dates and homework here.
+                    </Text>
+                  )}
                 </View>
 
-                {parsedItems.length ? (
-                  <View style={styles.parsedList}>
-                    {parsedItems.map((item) => (
-                      <View key={`${item.title}-${item.date}`} style={styles.parsedRow}>
-                        <Text style={styles.parsedTitle}>{item.title}</Text>
-                        <Text style={styles.parsedMeta}>
-                          {item.type} • {formatDisplayDate(item.date)}
-                        </Text>
-                      </View>
+                <View style={styles.halfCard}>
+                  <Text style={styles.sectionLabel}>Connections</Text>
+                  <Text style={styles.infoTitle}>Export</Text>
+                  <View style={styles.chipRow}>
+                    {exportTargets.map((target) => {
+                      const isSelected = target === selectedTarget;
+
+                      return (
+                        <Pressable
+                          key={target}
+                          onPress={() => handleExport(target)}
+                          style={[styles.chip, isSelected && styles.chipActive]}
+                        >
+                          <Text
+                            style={[styles.chipText, isSelected && styles.chipTextActive]}
+                          >
+                            {isExporting && isSelected ? "Working..." : target}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.buttonRow}>
+                    <Pressable
+                      onPress={async () => {
+                        try {
+                          await beginGoogleOAuth(sessionId);
+                        } catch (error) {
+                          Alert.alert(
+                            "Google connect",
+                            error instanceof Error ? error.message : "Could not start Google OAuth.",
+                          );
+                        }
+                      }}
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        styles.smallButton,
+                        pressed && styles.secondaryButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.secondaryButtonText}>
+                        {googleConnected ? "Reconnect Google" : "Connect Google"}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={async () => {
+                        try {
+                          await beginNotionOAuth(sessionId);
+                        } catch (error) {
+                          Alert.alert(
+                            "Notion connect",
+                            error instanceof Error ? error.message : "Could not start Notion OAuth.",
+                          );
+                        }
+                      }}
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        styles.smallButton,
+                        pressed && styles.secondaryButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.secondaryButtonText}>
+                        {notionConnected ? "Reconnect Notion" : "Connect Notion"}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={refreshConnections}
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        styles.smallButton,
+                        pressed && styles.secondaryButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.secondaryButtonText}>
+                        {isRefreshingConnections ? "Refreshing..." : "Refresh"}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.checkList}>
+                    {integrationSummary.map((item) => (
+                      <Text key={item} style={styles.checkListItem}>
+                        {item}
+                      </Text>
                     ))}
                   </View>
-                ) : (
-                  <Text style={styles.emptyStateText}>
-                    Analyze a syllabus to generate structured items here.
-                  </Text>
-                )}
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.footerCard}>
+              <View style={styles.footerBlock}>
+                <Text style={styles.sectionLabel}>Forever unlock</Text>
+                <Text style={styles.footerTitle}>Unlimited syllabi for $5</Text>
+                <Text style={styles.footerBody}>
+                  Keep one syllabus free. If users want to upload more than one syllabus, they pay $5 for the app forever.
+                </Text>
               </View>
 
-              <View style={styles.infoCard}>
-                <Text style={styles.sectionLabel}>Connections</Text>
-                <Text style={styles.infoTitle}>Google, Apple, or Notion</Text>
-                <Text style={styles.cardBody}>
-                  Apple export works directly on-device now. Google and Notion
-                  are wired for backend connection endpoints.
+              <Pressable
+                onPress={handleUnlockPremium}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  styles.unlockButton,
+                  pressed && styles.primaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {isPremiumUnlocked
+                    ? "Unlocked"
+                    : isPurchasing
+                      ? "Purchasing..."
+                      : "Unlock for $5"}
                 </Text>
-                <View style={styles.chipRow}>
-                  {exportTargets.map((target) => {
-                    const isSelected = target === selectedTarget;
+              </Pressable>
 
-                    return (
-                      <Pressable
-                        key={target}
-                        onPress={() => handleExport(target)}
-                        style={[
-                          styles.chip,
-                          isSelected && styles.chipActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.chipText,
-                            isSelected && styles.chipTextActive,
-                          ]}
-                        >
-                          {isExporting && isSelected ? "Working..." : target}
-                        </Text>
-                      </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    setIsPurchasing(true);
+                    const unlocked = await restoreForeverUnlock();
+                    setIsPremiumUnlocked(unlocked);
+                    Alert.alert(
+                      unlocked ? "Restored" : "No purchase found",
+                      unlocked
+                        ? "Your forever unlock has been restored."
+                        : "No qualifying unlock was found for this account yet.",
                     );
-                  })}
-                </View>
-              </View>
-
-              <View style={styles.infoCard}>
-                <Text style={styles.sectionLabel}>Production mode</Text>
-                <Text style={styles.infoTitle}>What is connected right now</Text>
-                <View style={styles.checkList}>
-                  {integrationSummary.map((item) => (
-                    <Text key={item} style={styles.checkListItem}>
-                      {item}
-                    </Text>
-                  ))}
-                </View>
-                {appConfig.parseApiBaseUrl ? (
-                  <Text style={styles.endpointText}>
-                    Parse API: {appConfig.parseApiBaseUrl}
-                  </Text>
-                ) : null}
-              </View>
-
-              <View style={styles.infoCard}>
-                <Text style={styles.sectionLabel}>Coming next</Text>
-                <Text style={styles.infoTitle}>Attendance tracker connection</Text>
-                <Text style={styles.cardBody}>
-                  The next layer can merge class attendance with deadlines so
-                  riskier weeks become visible early.
-                </Text>
-                <View style={styles.timeline}>
-                  <View style={styles.timelineDot} />
-                  <View style={styles.timelineLine} />
-                  <View style={[styles.timelineDot, styles.timelineDotActive]} />
-                </View>
-              </View>
+                  } catch (error) {
+                    Alert.alert(
+                      "Restore failed",
+                      error instanceof Error ? error.message : "Could not restore purchases.",
+                    );
+                  } finally {
+                    setIsPurchasing(false);
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  styles.smallButton,
+                  pressed && styles.secondaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>Restore purchase</Text>
+              </Pressable>
             </View>
 
-            <View style={styles.bottomCard}>
-              <Text style={styles.sectionLabel}>Simple flow</Text>
-              <Text style={styles.bottomTitle}>
-                Import, analyze, and export without rebuilding your semester by hand
-              </Text>
-              <Text style={styles.cardBody}>
-                This starter now has real import behavior, a live-ready parsing
-                hook, real device calendar export, and production slots for
-                Google Calendar and Notion integrations.
-              </Text>
-              <Text style={styles.bottomFootnote}>
-                Parsing mode: {parseMode === "live" ? "Live API" : "Demo fallback"}
-              </Text>
-            </View>
+            <Text style={styles.bottomFootnote}>
+              Session: {sessionId} • Parse API: {appConfig.parseApiBaseUrl || "demo"}
+            </Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -495,16 +636,16 @@ const styles = StyleSheet.create({
     backgroundColor: palette.background,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 32,
+    paddingBottom: 24,
     alignItems: "center",
   },
   contentColumn: {
     width: "100%",
     maxWidth: 560,
     alignItems: "center",
-    gap: 18,
+    gap: 10,
   },
   heroGlowOne: {
     position: "absolute",
@@ -525,132 +666,99 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(168, 184, 138, 0.12)",
   },
   eyebrow: {
-    marginTop: 10,
+    marginTop: 8,
     color: palette.textSoft,
     textTransform: "uppercase",
     letterSpacing: 3,
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: sansFont,
     textAlign: "center",
   },
   heroTitle: {
     color: palette.text,
-    fontSize: 42,
-    lineHeight: 48,
+    fontSize: 31,
+    lineHeight: 35,
     fontFamily: "Alice",
-    maxWidth: 420,
+    maxWidth: 400,
     textAlign: "center",
   },
   heroBody: {
     color: palette.textSoft,
-    fontSize: 18,
-    lineHeight: 29,
+    fontSize: 14,
+    lineHeight: 19,
     fontFamily: sansFont,
-    maxWidth: 430,
+    maxWidth: 340,
     textAlign: "center",
   },
-  uploadCard: {
+  heroCard: {
     width: "100%",
     backgroundColor: palette.surface,
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 20,
-    gap: 18,
+    padding: 16,
+    gap: 10,
     shadowColor: "#45533F",
     shadowOpacity: 0.08,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 4,
     alignItems: "center",
   },
-  uploadHeaderRow: {
+  heroCardTop: {
     width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
-    gap: 16,
+    gap: 8,
+  },
+  metricPill: {
+    backgroundColor: palette.surfaceMuted,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 96,
     alignItems: "center",
   },
-  uploadHeaderText: {
-    gap: 8,
-    alignItems: "center",
+  metricLabel: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+  },
+  metricValue: {
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 13,
+    marginTop: 2,
   },
   cardTitle: {
     color: palette.text,
     fontFamily: "Alice",
-    fontSize: 30,
-    lineHeight: 34,
+    fontSize: 23,
+    lineHeight: 27,
     textAlign: "center",
   },
   cardBody: {
     color: palette.textSoft,
     fontFamily: sansFont,
-    fontSize: 17,
-    lineHeight: 28,
-    textAlign: "center",
-  },
-  fileBadge: {
-    backgroundColor: palette.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  fileBadgeText: {
-    color: palette.forest,
-    fontFamily: sansFont,
-    fontSize: 13,
-  },
-  dropZone: {
-    width: "100%",
-    backgroundColor: "#F7F1E8",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderStyle: "dashed",
-    padding: 22,
-    alignItems: "center",
-    gap: 12,
-  },
-  dropIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: "rgba(54, 109, 97, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dropIconInner: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    backgroundColor: palette.forest,
-  },
-  dropZoneTitle: {
-    color: palette.text,
-    fontFamily: "Alice",
-    fontSize: 26,
-    lineHeight: 30,
-    textAlign: "center",
-  },
-  dropZoneBody: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
-    fontSize: 16,
-    lineHeight: 25,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: "center",
     maxWidth: 420,
   },
   buttonRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginTop: 6,
+    gap: 8,
     justifyContent: "center",
   },
   primaryButton: {
     backgroundColor: palette.forest,
     borderRadius: 999,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
   primaryButtonPressed: {
     opacity: 0.86,
@@ -658,14 +766,14 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#F9F5EE",
     fontFamily: sansFont,
-    fontSize: 16,
+    fontSize: 15,
   },
   secondaryButton: {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: palette.border,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: "#F6F0E5",
   },
   parseButton: {
@@ -677,115 +785,105 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: palette.text,
     fontFamily: sansFont,
-    fontSize: 16,
+    fontSize: 14,
   },
-  selectionCard: {
+  filenameRow: {
     width: "100%",
-    backgroundColor: "rgba(239, 230, 215, 0.55)",
-    borderRadius: 20,
-    padding: 16,
-    gap: 6,
-    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: "#F7F0E6",
   },
-  selectionTitle: {
-    color: palette.text,
-    fontFamily: "Alice",
-    fontSize: 23,
-    lineHeight: 28,
-    textAlign: "center",
-  },
-  selectionMeta: {
+  filenameText: {
     color: palette.textSoft,
     fontFamily: sansFont,
-    fontSize: 15,
+    fontSize: 13,
     textAlign: "center",
   },
-  grid: {
+  mainCard: {
     width: "100%",
-    gap: 16,
-  },
-  infoCard: {
-    width: "100%",
-    backgroundColor: "rgba(251, 247, 240, 0.88)",
-    borderRadius: 26,
+    backgroundColor: "rgba(251, 247, 240, 0.9)",
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 20,
-    gap: 14,
-    alignItems: "center",
+    padding: 14,
   },
-  tallCard: {
-    paddingBottom: 24,
+  compactRow: {
+    width: "100%",
+    gap: 12,
+  },
+  halfCard: {
+    width: "100%",
+    gap: 10,
+    alignItems: "center",
   },
   sectionLabel: {
     color: palette.textSoft,
     textTransform: "uppercase",
-    letterSpacing: 2.8,
-    fontSize: 12,
+    letterSpacing: 2.4,
+    fontSize: 11,
     fontFamily: sansFont,
     textAlign: "center",
   },
   infoTitle: {
     color: palette.text,
     fontFamily: "Alice",
-    fontSize: 28,
-    lineHeight: 33,
+    fontSize: 21,
+    lineHeight: 25,
     textAlign: "center",
   },
   heatmap: {
-    marginTop: 6,
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
     justifyContent: "center",
   },
   heatCell: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 8,
   },
   parsedList: {
     width: "100%",
-    marginTop: 4,
-    gap: 10,
+    gap: 8,
   },
   parsedRow: {
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 14,
     backgroundColor: "#F7F0E6",
-    gap: 4,
+    gap: 3,
   },
   parsedTitle: {
     color: palette.text,
     fontFamily: sansFont,
-    fontSize: 16,
+    fontSize: 14,
     textAlign: "center",
   },
   parsedMeta: {
     color: palette.textSoft,
     fontFamily: sansFont,
-    fontSize: 13,
+    fontSize: 12,
     textAlign: "center",
   },
   emptyStateText: {
     color: palette.textSoft,
     fontFamily: sansFont,
-    fontSize: 15,
+    fontSize: 13,
     textAlign: "center",
   },
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
     justifyContent: "center",
   },
   chip: {
     backgroundColor: palette.surfaceMuted,
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
   },
   chipActive: {
     backgroundColor: palette.forest,
@@ -793,71 +891,60 @@ const styles = StyleSheet.create({
   chipText: {
     color: palette.text,
     fontFamily: sansFont,
-    fontSize: 14,
+    fontSize: 13,
   },
   chipTextActive: {
     color: "#F9F5EE",
   },
   checkList: {
-    gap: 8,
+    gap: 5,
     alignItems: "center",
   },
   checkListItem: {
     color: palette.text,
     fontFamily: sansFont,
-    fontSize: 15,
-    textAlign: "center",
-  },
-  endpointText: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
     fontSize: 13,
     textAlign: "center",
   },
-  timeline: {
-    paddingTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  footerCard: {
     width: "100%",
-  },
-  timelineDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
-    backgroundColor: palette.accent,
-  },
-  timelineDotActive: {
-    backgroundColor: palette.forest,
-  },
-  timelineLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: palette.border,
-  },
-  bottomCard: {
-    width: "100%",
-    backgroundColor: palette.surface,
-    borderRadius: 30,
+    backgroundColor: "#F8F3E9",
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 22,
-    gap: 14,
-    marginTop: 4,
+    padding: 16,
+    gap: 12,
     alignItems: "center",
   },
-  bottomTitle: {
+  footerBlock: {
+    gap: 6,
+    alignItems: "center",
+  },
+  footerTitle: {
     color: palette.text,
     fontFamily: "Alice",
-    fontSize: 31,
-    lineHeight: 36,
-    maxWidth: 420,
+    fontSize: 22,
+    lineHeight: 25,
     textAlign: "center",
   },
-  bottomFootnote: {
-    color: palette.forest,
+  footerBody: {
+    color: palette.textSoft,
     fontFamily: sansFont,
-    fontSize: 15,
+    fontSize: 14,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  unlockButton: {
+    minWidth: 150,
+  },
+  smallButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bottomFootnote: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 12,
     textAlign: "center",
   },
 });

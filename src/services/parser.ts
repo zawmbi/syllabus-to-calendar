@@ -9,6 +9,13 @@ type ParseApiResponse = {
 };
 
 export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
+  if (file.uri.startsWith("demo://")) {
+    return {
+      items: buildDemoParseResults(file),
+      mode: "demo",
+    };
+  }
+
   if (!appConfig.parseApiBaseUrl) {
     return {
       items: buildDemoParseResults(file),

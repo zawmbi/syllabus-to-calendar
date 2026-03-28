@@ -65,32 +65,27 @@ export async function exportToDeviceCalendar(items: ParsedItem[]) {
   }
 }
 
-export async function beginGoogleExport(items: ParsedItem[]) {
+export async function beginGoogleExport(items: ParsedItem[], sessionId: string) {
   if (appConfig.googleExportUrl) {
     const response = await fetch(appConfig.googleExportUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, sessionId }),
     });
 
     if (!response.ok) {
       throw new Error(`Google export failed: ${response.status}`);
     }
 
-    const data = (await response.json()) as { redirectUrl?: string };
-
-    if (data.redirectUrl) {
-      await Linking.openURL(data.redirectUrl);
-      return;
-    }
+    return;
   }
 
   await Linking.openURL(firstGoogleEventUrl(items[0]));
 }
 
-export async function beginNotionExport(items: ParsedItem[]) {
+export async function beginNotionExport(items: ParsedItem[], sessionId: string) {
   if (!appConfig.notionExportUrl) {
     throw new Error("Notion export endpoint is not configured");
   }
@@ -100,7 +95,7 @@ export async function beginNotionExport(items: ParsedItem[]) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, sessionId }),
   });
 
   if (!response.ok) {

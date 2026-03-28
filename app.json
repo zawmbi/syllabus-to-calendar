@@ -3,12 +3,16 @@
     "name": "Syllabus to Calendar",
     "slug": "syllabus-to-calendar",
     "version": "1.0.0",
+    "scheme": "syllabustocalendar",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
+      "bundleIdentifier": "com.lindadev.syllabustocalendar",
+      "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow access to photos so you can import a scanned syllabus image.",
@@ -16,12 +20,19 @@
       }
     },
     "android": {
+      "package": "com.lindadev.syllabustocalendar",
+      "versionCode": 1,
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#F5F0E6"
       },
       "edgeToEdgeEnabled": true
     },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
     "plugins": [
+      "expo-dev-client",
       "expo-asset",
       "expo-document-picker",
       "expo-calendar",
@@ -31,6 +42,11 @@
           "photosPermission": "Allow access to photos so you can import a scanned syllabus image."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
   }
 }

@@ -17,3 +17,7 @@ export function hasGoogleExport() {
 export function hasNotionExport() {
   return Boolean(appConfig.notionExportUrl);
 }
+
+export function integrationBaseUrl() {
+  return appConfig.parseApiBaseUrl;
+}
