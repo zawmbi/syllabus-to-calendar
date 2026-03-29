@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow access to photos so you can import a scanned syllabus image.",
-        "NSCalendarsUsageDescription": "Allow calendar access so the app can add syllabus dates to your calendar."
+        "NSCalendarsUsageDescription": "Allow calendar access so the app can add syllabus dates to your calendar.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -26,7 +27,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#F5F0E6"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,8 +51,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "9628b560-b01c-4b0a-b7fd-e2cbba2454f0"
       }
-    }
+    },
+    "owner": "attendancetrackerapps-organization"
   }
 }
