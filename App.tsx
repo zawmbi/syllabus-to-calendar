@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -29,8 +30,8 @@ import { parseSyllabus } from "./src/services/parser";
 import {
   configurePurchases,
   getPremiumStatus,
-  purchaseForeverUnlock,
-  restoreForeverUnlock,
+  purchaseSubscription,
+  restoreSubscription,
 } from "./src/services/purchases";
 import type { ExportTarget, ImportedFile, ParsedItem } from "./src/types";
 
@@ -53,6 +54,10 @@ const exportTargets: ExportTarget[] = [
   "Apple Calendar",
   "Notion",
 ];
+const roadmapTabs = ["Assignments", "Exams", "Events"] as const;
+type RoadmapTab = (typeof roadmapTabs)[number];
+const pageTabs = ["Plan", "Help", "Feedback", "Subscribe"] as const;
+type PageTab = (typeof pageTabs)[number];
 
 const sansFont = Platform.select({
   ios: "Avenir Next",
@@ -94,6 +99,30 @@ function createSessionId() {
   return `session-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
+function itemMatchesTab(item: ParsedItem, tab: RoadmapTab) {
+  if (tab === "Assignments") {
+    return item.type === "Homework";
+  }
+
+  if (tab === "Exams") {
+    return item.type === "Exam";
+  }
+
+  return item.type === "Important date";
+}
+
+function labelForItemType(itemType: ParsedItem["type"]) {
+  if (itemType === "Homework") {
+    return "Assignment";
+  }
+
+  if (itemType === "Exam") {
+    return "Exam";
+  }
+
+  return "Event";
+}
+
 function AppContent() {
   const [fontsLoaded] = useFonts({
     Alice: require("./Alice/Alice-Regular.ttf"),
@@ -113,6 +142,10 @@ function AppContent() {
   const [isRefreshingConnections, setIsRefreshingConnections] = useState(false);
   const [isPremiumUnlocked, setIsPremiumUnlocked] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [roadmapTab, setRoadmapTab] = useState<RoadmapTab>("Assignments");
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [activePage, setActivePage] = useState<PageTab>("Plan");
+  const [feedbackText, setFeedbackText] = useState("");
 
   const integrationSummary = useMemo(
     () => [
@@ -173,6 +206,7 @@ function AppContent() {
     setImportedFile(file);
     setParsedItems([]);
     setParseMode(null);
+    setSelectedItemIndex(0);
   };
 
   const handleUseSampleSyllabus = () => {
@@ -190,12 +224,12 @@ function AppContent() {
       setIsPurchasing(true);
 
       try {
-        const unlocked = await purchaseForeverUnlock();
+        const unlocked = await purchaseSubscription();
         setIsPremiumUnlocked(unlocked);
         Alert.alert(
-          unlocked ? "Unlocked" : "Purchase pending",
+          unlocked ? "Subscribed" : "Subscription pending",
           unlocked
-            ? "Unlimited syllabus uploads are now unlocked forever."
+            ? "Unlimited syllabus uploads are now active."
             : "The purchase did not unlock the entitlement yet.",
         );
       } catch (error) {
@@ -288,11 +322,32 @@ function AppContent() {
       const result = await parseSyllabus(importedFile);
       setParsedItems(result.items);
       setParseMode(result.mode);
+      setSelectedItemIndex(0);
     } catch {
       Alert.alert("Parse failed", "We could not analyze this syllabus yet.");
     } finally {
       setIsParsing(false);
     }
+  };
+
+  const filteredItems = parsedItems.filter((item) => itemMatchesTab(item, roadmapTab));
+  const selectedFilteredItem =
+    filteredItems[Math.min(selectedItemIndex, Math.max(filteredItems.length - 1, 0))] || null;
+  const selectedGlobalIndex = selectedFilteredItem
+    ? parsedItems.findIndex(
+        (item) =>
+          item.title === selectedFilteredItem.title &&
+          item.date === selectedFilteredItem.date &&
+          item.type === selectedFilteredItem.type,
+      )
+    : -1;
+
+  const updateParsedItem = (index: number, updates: Partial<ParsedItem>) => {
+    setParsedItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...updates } : item,
+      ),
+    );
   };
 
   const handleExport = async (target: ExportTarget) => {
@@ -344,10 +399,10 @@ function AppContent() {
           <View style={styles.contentColumn}>
             <Text style={styles.eyebrow}>Syllabus planner</Text>
             <Text style={styles.heroTitle}>
-              Turn one syllabus into a clean semester plan.
+              Syllabus to calendar.
             </Text>
             <Text style={styles.heroBody}>
-              One syllabus free. More than one is a one-time $5 unlock forever.
+              Upload. Review. Export.
             </Text>
 
             <View style={styles.heroCard}>
@@ -372,7 +427,7 @@ function AppContent() {
 
               <Text style={styles.cardTitle}>Import and analyze</Text>
               <Text style={styles.cardBody}>
-                PDF, JPEG, HEIC, or photo scan. Keep the first run free, then unlock unlimited syllabi for $5 forever.
+                PDF, JPEG, HEIC, or photo.
               </Text>
 
               <View style={styles.buttonRow}>
@@ -430,10 +485,53 @@ function AppContent() {
             </View>
 
             <View style={styles.mainCard}>
+              <View style={styles.tabRow}>
+                {pageTabs.map((tab) => {
+                  const isActive = activePage === tab;
+
+                  return (
+                    <Pressable
+                      key={tab}
+                      onPress={() => setActivePage(tab)}
+                      style={[styles.tabChip, isActive && styles.tabChipActive]}
+                    >
+                      <Text
+                        style={[styles.tabChipText, isActive && styles.tabChipTextActive]}
+                      >
+                        {tab}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {activePage === "Plan" ? (
               <View style={styles.compactRow}>
                 <View style={styles.halfCard}>
-                  <Text style={styles.sectionLabel}>Results</Text>
-                  <Text style={styles.infoTitle}>Key items</Text>
+                  <Text style={styles.sectionLabel}>Before upload</Text>
+                  <Text style={styles.infoTitle}>Roadmap + edit</Text>
+                  <View style={styles.tabRow}>
+                    {roadmapTabs.map((tab) => {
+                      const isActive = roadmapTab === tab;
+
+                      return (
+                        <Pressable
+                          key={tab}
+                          onPress={() => {
+                            setRoadmapTab(tab);
+                            setSelectedItemIndex(0);
+                          }}
+                          style={[styles.tabChip, isActive && styles.tabChipActive]}
+                        >
+                          <Text
+                            style={[styles.tabChipText, isActive && styles.tabChipTextActive]}
+                          >
+                            {tab}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                   <View style={styles.heatmap}>
                     {[palette.blush, palette.sage, palette.forest, palette.olive, palette.accent, palette.forest].map(
                       (color, index) => (
@@ -444,22 +542,63 @@ function AppContent() {
                       ),
                     )}
                   </View>
-                  {parsedItems.length ? (
+                  {filteredItems.length ? (
                     <View style={styles.parsedList}>
-                      {parsedItems.slice(0, 3).map((item) => (
-                        <View key={`${item.title}-${item.date}`} style={styles.parsedRow}>
+                      {filteredItems.slice(0, 3).map((item, index) => (
+                        <Pressable
+                          key={`${item.title}-${item.date}-${index}`}
+                          onPress={() => setSelectedItemIndex(index)}
+                          style={[
+                            styles.parsedRow,
+                            selectedFilteredItem === item && styles.parsedRowActive,
+                          ]}
+                        >
                           <Text style={styles.parsedTitle}>{item.title}</Text>
                           <Text style={styles.parsedMeta}>
-                            {item.type} • {formatDisplayDate(item.date)}
+                            {labelForItemType(item.type)} • {formatDisplayDate(item.date)}
                           </Text>
-                        </View>
+                        </Pressable>
                       ))}
                     </View>
                   ) : (
                     <Text style={styles.emptyStateText}>
-                      Analyze a syllabus to see dates and homework here.
+                      No {roadmapTab.toLowerCase()} yet. Analyze a syllabus or switch tabs.
                     </Text>
                   )}
+
+                  {selectedFilteredItem && selectedGlobalIndex >= 0 ? (
+                    <View style={styles.editorCard}>
+                      <Text style={styles.editorTitle}>Editable page</Text>
+                      <TextInput
+                        value={selectedFilteredItem.title}
+                        onChangeText={(text) =>
+                          updateParsedItem(selectedGlobalIndex, { title: text })
+                        }
+                        placeholder="Title"
+                        placeholderTextColor={palette.textSoft}
+                        style={styles.editorInput}
+                      />
+                      <TextInput
+                        value={selectedFilteredItem.date}
+                        onChangeText={(text) =>
+                          updateParsedItem(selectedGlobalIndex, { date: text })
+                        }
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={palette.textSoft}
+                        style={styles.editorInput}
+                      />
+                      <TextInput
+                        value={selectedFilteredItem.notes || ""}
+                        onChangeText={(text) =>
+                          updateParsedItem(selectedGlobalIndex, { notes: text })
+                        }
+                        placeholder="Notes"
+                        placeholderTextColor={palette.textSoft}
+                        style={[styles.editorInput, styles.editorNotes]}
+                        multiline
+                      />
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.halfCard}>
@@ -553,14 +692,106 @@ function AppContent() {
                   </View>
                 </View>
               </View>
+              ) : null}
+
+              {activePage === "Help" ? (
+                <View style={styles.singlePageCard}>
+                  <Text style={styles.sectionLabel}>Help</Text>
+                  <Text style={styles.infoTitle}>How it works</Text>
+                  <View style={styles.checkList}>
+                    <Text style={styles.checkListItem}>1. Upload a syllabus.</Text>
+                    <Text style={styles.checkListItem}>2. Review assignments, exams, and events.</Text>
+                    <Text style={styles.checkListItem}>3. Edit anything before export.</Text>
+                    <Text style={styles.checkListItem}>4. Export to Google Calendar, Apple Calendar, or Notion.</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {activePage === "Feedback" ? (
+                <View style={styles.singlePageCard}>
+                  <Text style={styles.sectionLabel}>Feedback</Text>
+                  <Text style={styles.infoTitle}>Send feedback</Text>
+                  <TextInput
+                    value={feedbackText}
+                    onChangeText={setFeedbackText}
+                    placeholder="Tell us what to improve"
+                    placeholderTextColor={palette.textSoft}
+                    style={[styles.editorInput, styles.feedbackInput]}
+                    multiline
+                  />
+                  <Pressable
+                    onPress={() => Alert.alert("Feedback", feedbackText ? "Feedback saved for review." : "Write something first.")}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      styles.smallButton,
+                      pressed && styles.secondaryButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Send feedback</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {activePage === "Subscribe" ? (
+                <View style={styles.singlePageCard}>
+                  <Text style={styles.sectionLabel}>Subscribe</Text>
+                  <Text style={styles.infoTitle}>Unlimited syllabi</Text>
+                  <Text style={styles.footerBody}>$3.99 per month.</Text>
+                  <Text style={styles.cardBody}>Use one syllabus free. Subscribe for unlimited uploads and export support across platforms.</Text>
+                  <Pressable
+                    onPress={handleUnlockPremium}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      styles.unlockButton,
+                      pressed && styles.primaryButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {isPremiumUnlocked
+                        ? "Subscribed"
+                        : isPurchasing
+                          ? "Starting..."
+                          : "Subscribe for $3.99/mo"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={async () => {
+                      try {
+                        setIsPurchasing(true);
+                        const unlocked = await restoreSubscription();
+                        setIsPremiumUnlocked(unlocked);
+                        Alert.alert(
+                          unlocked ? "Restored" : "No subscription found",
+                          unlocked ? "Your subscription has been restored." : "No active subscription was found.",
+                        );
+                      } catch (error) {
+                        Alert.alert(
+                          "Restore failed",
+                          error instanceof Error ? error.message : "Could not restore subscription.",
+                        );
+                      } finally {
+                        setIsPurchasing(false);
+                      }
+                    }}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      styles.smallButton,
+                      pressed && styles.secondaryButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Restore subscription</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.footerCard}>
               <View style={styles.footerBlock}>
-                <Text style={styles.sectionLabel}>Forever unlock</Text>
-                <Text style={styles.footerTitle}>Unlimited syllabi for $5</Text>
+                <Text style={styles.sectionLabel}>Subscription</Text>
+                <Text style={styles.footerTitle}>Unlimited syllabi for $3.99/month</Text>
                 <Text style={styles.footerBody}>
-                  Keep one syllabus free. If users want to upload more than one syllabus, they pay $5 for the app forever.
+                  One free syllabus. Subscribe for unlimited uploads.
                 </Text>
               </View>
 
@@ -574,10 +805,10 @@ function AppContent() {
               >
                 <Text style={styles.primaryButtonText}>
                   {isPremiumUnlocked
-                    ? "Unlocked"
+                    ? "Subscribed"
                     : isPurchasing
-                      ? "Purchasing..."
-                      : "Unlock for $5"}
+                      ? "Starting..."
+                      : "Subscribe"}
                 </Text>
               </Pressable>
 
@@ -585,13 +816,13 @@ function AppContent() {
                 onPress={async () => {
                   try {
                     setIsPurchasing(true);
-                    const unlocked = await restoreForeverUnlock();
+                    const unlocked = await restoreSubscription();
                     setIsPremiumUnlocked(unlocked);
                     Alert.alert(
-                      unlocked ? "Restored" : "No purchase found",
+                      unlocked ? "Restored" : "No subscription found",
                       unlocked
-                        ? "Your forever unlock has been restored."
-                        : "No qualifying unlock was found for this account yet.",
+                        ? "Your subscription has been restored."
+                        : "No active subscription was found.",
                     );
                   } catch (error) {
                     Alert.alert(
@@ -608,7 +839,7 @@ function AppContent() {
                   pressed && styles.secondaryButtonPressed,
                 ]}
               >
-                <Text style={styles.secondaryButtonText}>Restore purchase</Text>
+                <Text style={styles.secondaryButtonText}>Restore subscription</Text>
               </Pressable>
             </View>
 
@@ -808,6 +1039,12 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     padding: 14,
   },
+  singlePageCard: {
+    width: "100%",
+    gap: 12,
+    alignItems: "center",
+    paddingVertical: 6,
+  },
   compactRow: {
     width: "100%",
     gap: 12,
@@ -855,6 +1092,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F0E6",
     gap: 3,
   },
+  parsedRowActive: {
+    borderWidth: 1,
+    borderColor: palette.forest,
+    backgroundColor: "#F1EADB",
+  },
   parsedTitle: {
     color: palette.text,
     fontFamily: sansFont,
@@ -872,6 +1114,29 @@ const styles = StyleSheet.create({
     fontFamily: sansFont,
     fontSize: 13,
     textAlign: "center",
+  },
+  tabRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+  },
+  tabChip: {
+    backgroundColor: palette.surfaceMuted,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  tabChipActive: {
+    backgroundColor: palette.forest,
+  },
+  tabChipText: {
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 12,
+  },
+  tabChipTextActive: {
+    color: "#F9F5EE",
   },
   chipRow: {
     flexDirection: "row",
@@ -905,6 +1170,42 @@ const styles = StyleSheet.create({
     fontFamily: sansFont,
     fontSize: 13,
     textAlign: "center",
+  },
+  editorCard: {
+    width: "100%",
+    backgroundColor: "#F8F2E8",
+    borderRadius: 16,
+    padding: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  editorTitle: {
+    color: palette.text,
+    fontFamily: "Alice",
+    fontSize: 18,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  editorInput: {
+    width: "100%",
+    backgroundColor: palette.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 14,
+  },
+  editorNotes: {
+    minHeight: 68,
+    textAlignVertical: "top",
+  },
+  feedbackInput: {
+    minHeight: 120,
+    textAlignVertical: "top",
   },
   footerCard: {
     width: "100%",

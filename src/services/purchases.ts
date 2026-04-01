@@ -48,7 +48,7 @@ export async function getPremiumStatus() {
   return hasActiveEntitlement(customerInfo);
 }
 
-export async function purchaseForeverUnlock() {
+export async function purchaseSubscription() {
   const apiKey = getRevenueCatApiKey();
 
   if (!apiKey) {
@@ -58,20 +58,20 @@ export async function purchaseForeverUnlock() {
   }
 
   const offerings = await Purchases.getOfferings();
-  const lifetimePackage =
-    offerings.current?.lifetime || offerings.current?.availablePackages[0];
+  const subscriptionPackage =
+    offerings.current?.monthly || offerings.current?.availablePackages[0];
 
-  if (!lifetimePackage) {
+  if (!subscriptionPackage) {
     throw new Error(
-      "No lifetime package is available. Create a one-time product in RevenueCat and attach it to the current offering.",
+      "No monthly package is available. Create a monthly subscription in RevenueCat and attach it to the current offering.",
     );
   }
 
-  const result = await Purchases.purchasePackage(lifetimePackage);
+  const result = await Purchases.purchasePackage(subscriptionPackage);
   return hasActiveEntitlement(result.customerInfo);
 }
 
-export async function restoreForeverUnlock() {
+export async function restoreSubscription() {
   const apiKey = getRevenueCatApiKey();
 
   if (!apiKey) {
