@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
-import { appConfig, hasGoogleExport, hasLiveParsing, hasNotionExport } from "./src/config";
+import { hasGoogleExport, hasLiveParsing, hasNotionExport } from "./src/config";
 import {
   beginGoogleExport,
   beginNotionExport,
@@ -58,6 +58,8 @@ const roadmapTabs = ["Assignments", "Exams", "Events"] as const;
 type RoadmapTab = (typeof roadmapTabs)[number];
 const pageTabs = ["Plan", "Help", "Feedback", "Subscribe"] as const;
 type PageTab = (typeof pageTabs)[number];
+const previewModes = ["List", "Calendar", "Notion"] as const;
+type PreviewMode = (typeof previewModes)[number];
 
 const sansFont = Platform.select({
   ios: "Avenir Next",
@@ -146,23 +148,7 @@ function AppContent() {
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [activePage, setActivePage] = useState<PageTab>("Plan");
   const [feedbackText, setFeedbackText] = useState("");
-
-  const integrationSummary = useMemo(
-    () => [
-      hasLiveParsing() ? "Live parsing API connected" : "Demo parsing mode",
-      googleConnected
-        ? "Google connected"
-        : hasGoogleExport()
-          ? "Google export ready"
-          : "Google draft fallback",
-      notionConnected
-        ? `Notion connected${notionWorkspaceName ? ` to ${notionWorkspaceName}` : ""}`
-        : hasNotionExport()
-          ? "Notion export ready"
-          : "Notion backend needed",
-    ],
-    [googleConnected, notionConnected, notionWorkspaceName],
-  );
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("List");
 
   const refreshConnections = async () => {
     setIsRefreshingConnections(true);
@@ -406,26 +392,15 @@ function AppContent() {
             </Text>
 
             <View style={styles.heroCard}>
-              <View style={styles.heroCardTop}>
-                <View style={styles.metricPill}>
-                  <Text style={styles.metricLabel}>Uploads</Text>
-                  <Text style={styles.metricValue}>
-                    {isPremiumUnlocked ? "Unlimited" : "1 free"}
-                  </Text>
-                </View>
-                <View style={styles.metricPill}>
-                  <Text style={styles.metricLabel}>Mode</Text>
-                  <Text style={styles.metricValue}>
-                    {parseMode === "live" ? "Live" : "Ready"}
-                  </Text>
-                </View>
-                <View style={styles.metricPill}>
-                  <Text style={styles.metricLabel}>Export</Text>
-                  <Text style={styles.metricValue}>{selectedTarget}</Text>
-                </View>
+              <View style={styles.summaryStrip}>
+                <Text style={styles.summaryText}>
+                  {isPremiumUnlocked ? "Unlimited uploads" : "1 free upload"}
+                </Text>
+                <Text style={styles.summaryDivider}>•</Text>
+                <Text style={styles.summaryText}>{selectedTarget}</Text>
               </View>
 
-              <Text style={styles.cardTitle}>Import and analyze</Text>
+              <Text style={styles.cardTitle}>Add a syllabus</Text>
               <Text style={styles.cardBody}>
                 PDF, JPEG, HEIC, or photo.
               </Text>
@@ -460,7 +435,7 @@ function AppContent() {
                     pressed && styles.secondaryButtonPressed,
                   ]}
                 >
-                  <Text style={styles.secondaryButtonText}>Sample</Text>
+                  <Text style={styles.secondaryButtonText}>Use example</Text>
                 </Pressable>
 
                 <Pressable
@@ -472,7 +447,7 @@ function AppContent() {
                   ]}
                 >
                   <Text style={styles.secondaryButtonText}>
-                    {isParsing ? "Analyzing..." : "Analyze"}
+                    {isParsing ? "Reading..." : "Create schedule"}
                   </Text>
                 </Pressable>
               </View>
@@ -485,7 +460,7 @@ function AppContent() {
             </View>
 
             <View style={styles.mainCard}>
-              <View style={styles.tabRow}>
+              <View style={styles.pageNav}>
                 {pageTabs.map((tab) => {
                   const isActive = activePage === tab;
 
@@ -493,10 +468,10 @@ function AppContent() {
                     <Pressable
                       key={tab}
                       onPress={() => setActivePage(tab)}
-                      style={[styles.tabChip, isActive && styles.tabChipActive]}
+                      style={styles.navItem}
                     >
                       <Text
-                        style={[styles.tabChipText, isActive && styles.tabChipTextActive]}
+                        style={[styles.navItemText, isActive && styles.navItemTextActive]}
                       >
                         {tab}
                       </Text>
@@ -509,8 +484,8 @@ function AppContent() {
               <View style={styles.compactRow}>
                 <View style={styles.halfCard}>
                   <Text style={styles.sectionLabel}>Before upload</Text>
-                  <Text style={styles.infoTitle}>Roadmap + edit</Text>
-                  <View style={styles.tabRow}>
+                  <Text style={styles.infoTitle}>Review and edit</Text>
+                  <View style={styles.sectionNav}>
                     {roadmapTabs.map((tab) => {
                       const isActive = roadmapTab === tab;
 
@@ -521,10 +496,10 @@ function AppContent() {
                             setRoadmapTab(tab);
                             setSelectedItemIndex(0);
                           }}
-                          style={[styles.tabChip, isActive && styles.tabChipActive]}
+                          style={styles.navItem}
                         >
                           <Text
-                            style={[styles.tabChipText, isActive && styles.tabChipTextActive]}
+                            style={[styles.navItemText, isActive && styles.navItemTextActive]}
                           >
                             {tab}
                           </Text>
@@ -532,15 +507,43 @@ function AppContent() {
                       );
                     })}
                   </View>
-                  <View style={styles.heatmap}>
-                    {[palette.blush, palette.sage, palette.forest, palette.olive, palette.accent, palette.forest].map(
-                      (color, index) => (
-                        <View
-                          key={index}
-                          style={[styles.heatCell, { backgroundColor: color }]}
-                        />
-                      ),
-                    )}
+                  <View style={styles.previewHeader}>
+                    <Text style={styles.previewLabel}>Preview</Text>
+                    <View style={styles.sectionNav}>
+                      {previewModes.map((mode) => {
+                        const isActive = previewMode === mode;
+
+                        return (
+                          <Pressable
+                            key={mode}
+                            onPress={() => setPreviewMode(mode)}
+                            style={styles.navItem}
+                          >
+                            <Text
+                              style={[styles.navItemText, isActive && styles.navItemTextActive]}
+                            >
+                              {mode}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <View style={styles.previewPanel}>
+                    <Text style={styles.previewPanelTitle}>
+                      {previewMode === "List"
+                        ? "Items"
+                        : previewMode === "Calendar"
+                          ? "Calendar view"
+                          : "Notion view"}
+                    </Text>
+                    <Text style={styles.previewPanelBody}>
+                      {previewMode === "List"
+                        ? "Review each item before export."
+                        : previewMode === "Calendar"
+                          ? "See how dates will sit in a calendar."
+                          : "See how entries will read in a database."}
+                    </Text>
                   </View>
                   {filteredItems.length ? (
                     <View style={styles.parsedList}>
@@ -562,7 +565,7 @@ function AppContent() {
                     </View>
                   ) : (
                     <Text style={styles.emptyStateText}>
-                      No {roadmapTab.toLowerCase()} yet. Analyze a syllabus or switch tabs.
+                      No {roadmapTab.toLowerCase()} yet.
                     </Text>
                   )}
 
@@ -604,7 +607,7 @@ function AppContent() {
                 <View style={styles.halfCard}>
                   <Text style={styles.sectionLabel}>Connections</Text>
                   <Text style={styles.infoTitle}>Export</Text>
-                  <View style={styles.chipRow}>
+                  <View style={styles.exportList}>
                     {exportTargets.map((target) => {
                       const isSelected = target === selectedTarget;
 
@@ -612,10 +615,10 @@ function AppContent() {
                         <Pressable
                           key={target}
                           onPress={() => handleExport(target)}
-                          style={[styles.chip, isSelected && styles.chipActive]}
+                          style={styles.exportRow}
                         >
                           <Text
-                            style={[styles.chipText, isSelected && styles.chipTextActive]}
+                            style={[styles.exportRowText, isSelected && styles.exportRowTextActive]}
                           >
                             {isExporting && isSelected ? "Working..." : target}
                           </Text>
@@ -623,72 +626,55 @@ function AppContent() {
                       );
                     })}
                   </View>
+                  <View style={styles.connectionList}>
+                    <View style={styles.connectionRow}>
+                      <Text style={styles.connectionLabel}>Google</Text>
+                      <Pressable
+                        onPress={async () => {
+                          try {
+                            await beginGoogleOAuth(sessionId);
+                          } catch (error) {
+                            Alert.alert(
+                              "Google connect",
+                              error instanceof Error ? error.message : "Could not start Google OAuth.",
+                            );
+                          }
+                        }}
+                      >
+                        <Text style={styles.connectionAction}>
+                          {googleConnected ? "Connected" : "Connect"}
+                        </Text>
+                      </Pressable>
+                    </View>
 
-                  <View style={styles.buttonRow}>
-                    <Pressable
-                      onPress={async () => {
-                        try {
-                          await beginGoogleOAuth(sessionId);
-                        } catch (error) {
-                          Alert.alert(
-                            "Google connect",
-                            error instanceof Error ? error.message : "Could not start Google OAuth.",
-                          );
-                        }
-                      }}
-                      style={({ pressed }) => [
-                        styles.secondaryButton,
-                        styles.smallButton,
-                        pressed && styles.secondaryButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {googleConnected ? "Reconnect Google" : "Connect Google"}
-                      </Text>
-                    </Pressable>
+                    <View style={styles.connectionRow}>
+                      <Text style={styles.connectionLabel}>Notion</Text>
+                      <Pressable
+                        onPress={async () => {
+                          try {
+                            await beginNotionOAuth(sessionId);
+                          } catch (error) {
+                            Alert.alert(
+                              "Notion connect",
+                              error instanceof Error ? error.message : "Could not start Notion OAuth.",
+                            );
+                          }
+                        }}
+                      >
+                        <Text style={styles.connectionAction}>
+                          {notionConnected ? "Connected" : "Connect"}
+                        </Text>
+                      </Pressable>
+                    </View>
 
-                    <Pressable
-                      onPress={async () => {
-                        try {
-                          await beginNotionOAuth(sessionId);
-                        } catch (error) {
-                          Alert.alert(
-                            "Notion connect",
-                            error instanceof Error ? error.message : "Could not start Notion OAuth.",
-                          );
-                        }
-                      }}
-                      style={({ pressed }) => [
-                        styles.secondaryButton,
-                        styles.smallButton,
-                        pressed && styles.secondaryButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {notionConnected ? "Reconnect Notion" : "Connect Notion"}
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      onPress={refreshConnections}
-                      style={({ pressed }) => [
-                        styles.secondaryButton,
-                        styles.smallButton,
-                        pressed && styles.secondaryButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {isRefreshingConnections ? "Refreshing..." : "Refresh"}
-                      </Text>
-                    </Pressable>
-                  </View>
-
-                  <View style={styles.checkList}>
-                    {integrationSummary.map((item) => (
-                      <Text key={item} style={styles.checkListItem}>
-                        {item}
-                      </Text>
-                    ))}
+                    <View style={styles.connectionRow}>
+                      <Text style={styles.connectionLabel}>Status</Text>
+                      <Pressable onPress={refreshConnections}>
+                        <Text style={styles.connectionAction}>
+                          {isRefreshingConnections ? "Refreshing" : "Refresh"}
+                        </Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
               </View>
@@ -699,10 +685,10 @@ function AppContent() {
                   <Text style={styles.sectionLabel}>Help</Text>
                   <Text style={styles.infoTitle}>How it works</Text>
                   <View style={styles.checkList}>
-                    <Text style={styles.checkListItem}>1. Upload a syllabus.</Text>
+                    <Text style={styles.checkListItem}>1. Add a syllabus.</Text>
                     <Text style={styles.checkListItem}>2. Review assignments, exams, and events.</Text>
-                    <Text style={styles.checkListItem}>3. Edit anything before export.</Text>
-                    <Text style={styles.checkListItem}>4. Export to Google Calendar, Apple Calendar, or Notion.</Text>
+                    <Text style={styles.checkListItem}>3. Edit before export.</Text>
+                    <Text style={styles.checkListItem}>4. Export to your platform.</Text>
                   </View>
                 </View>
               ) : null}
@@ -737,7 +723,7 @@ function AppContent() {
                   <Text style={styles.sectionLabel}>Subscribe</Text>
                   <Text style={styles.infoTitle}>Unlimited syllabi</Text>
                   <Text style={styles.footerBody}>$3.99 per month.</Text>
-                  <Text style={styles.cardBody}>Use one syllabus free. Subscribe for unlimited uploads and export support across platforms.</Text>
+                  <Text style={styles.cardBody}>One syllabus is free.</Text>
                   <Pressable
                     onPress={handleUnlockPremium}
                     style={({ pressed }) => [
@@ -751,7 +737,7 @@ function AppContent() {
                         ? "Subscribed"
                         : isPurchasing
                           ? "Starting..."
-                          : "Subscribe for $3.99/mo"}
+                          : "Start subscription"}
                     </Text>
                   </Pressable>
 
@@ -785,67 +771,6 @@ function AppContent() {
                 </View>
               ) : null}
             </View>
-
-            <View style={styles.footerCard}>
-              <View style={styles.footerBlock}>
-                <Text style={styles.sectionLabel}>Subscription</Text>
-                <Text style={styles.footerTitle}>Unlimited syllabi for $3.99/month</Text>
-                <Text style={styles.footerBody}>
-                  One free syllabus. Subscribe for unlimited uploads.
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={handleUnlockPremium}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  styles.unlockButton,
-                  pressed && styles.primaryButtonPressed,
-                ]}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {isPremiumUnlocked
-                    ? "Subscribed"
-                    : isPurchasing
-                      ? "Starting..."
-                      : "Subscribe"}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={async () => {
-                  try {
-                    setIsPurchasing(true);
-                    const unlocked = await restoreSubscription();
-                    setIsPremiumUnlocked(unlocked);
-                    Alert.alert(
-                      unlocked ? "Restored" : "No subscription found",
-                      unlocked
-                        ? "Your subscription has been restored."
-                        : "No active subscription was found.",
-                    );
-                  } catch (error) {
-                    Alert.alert(
-                      "Restore failed",
-                      error instanceof Error ? error.message : "Could not restore purchases.",
-                    );
-                  } finally {
-                    setIsPurchasing(false);
-                  }
-                }}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  styles.smallButton,
-                  pressed && styles.secondaryButtonPressed,
-                ]}
-              >
-                <Text style={styles.secondaryButtonText}>Restore subscription</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.bottomFootnote}>
-              Session: {sessionId} • Parse API: {appConfig.parseApiBaseUrl || "demo"}
-            </Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -943,26 +868,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-  metricPill: {
-    backgroundColor: palette.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 96,
-    alignItems: "center",
+  summaryStrip: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    paddingBottom: 2,
   },
-  metricLabel: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
-    fontSize: 10,
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-  },
-  metricValue: {
+  summaryText: {
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 13,
-    marginTop: 2,
+  },
+  summaryDivider: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 13,
   },
   cardTitle: {
     color: palette.text,
@@ -1069,17 +991,6 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     textAlign: "center",
   },
-  heatmap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
-  },
-  heatCell: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-  },
   parsedList: {
     width: "100%",
     gap: 8,
@@ -1115,51 +1026,119 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  tabRow: {
+  pageNav: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 14,
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  sectionNav: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
     justifyContent: "center",
   },
-  tabChip: {
-    backgroundColor: palette.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  navItem: {
+    paddingVertical: 2,
   },
-  tabChipActive: {
-    backgroundColor: palette.forest,
-  },
-  tabChipText: {
+  navItemText: {
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 12,
   },
-  tabChipTextActive: {
-    color: "#F9F5EE",
+  navItemTextActive: {
+    color: palette.forest,
+    fontWeight: "600",
   },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  exportList: {
+    width: "100%",
     gap: 8,
-    justifyContent: "center",
   },
-  chip: {
-    backgroundColor: palette.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+  exportRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+    alignItems: "center",
   },
-  chipActive: {
-    backgroundColor: palette.forest,
-  },
-  chipText: {
+  exportRowText: {
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 13,
   },
-  chipTextActive: {
-    color: "#F9F5EE",
+  exportRowTextActive: {
+    color: palette.forest,
+    fontWeight: "600",
+  },
+  connectionList: {
+    width: "100%",
+    gap: 2,
+    marginTop: 4,
+  },
+  connectionRow: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  connectionLabel: {
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 13,
+  },
+  connectionAction: {
+    color: palette.forest,
+    fontFamily: sansFont,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  statusList: {
+    width: "100%",
+    gap: 6,
+    marginTop: 6,
+  },
+  statusText: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 12,
+    textAlign: "center",
+  },
+  previewHeader: {
+    width: "100%",
+    gap: 6,
+    alignItems: "center",
+  },
+  previewLabel: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 2,
+  },
+  previewPanel: {
+    width: "100%",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "#F7F0E6",
+    borderRadius: 14,
+    alignItems: "center",
+    gap: 4,
+  },
+  previewPanelTitle: {
+    color: palette.text,
+    fontFamily: "Alice",
+    fontSize: 18,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  previewPanelBody: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 13,
+    textAlign: "center",
   },
   checkList: {
     gap: 5,
@@ -1207,27 +1186,6 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: "top",
   },
-  footerCard: {
-    width: "100%",
-    backgroundColor: "#F8F3E9",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 16,
-    gap: 12,
-    alignItems: "center",
-  },
-  footerBlock: {
-    gap: 6,
-    alignItems: "center",
-  },
-  footerTitle: {
-    color: palette.text,
-    fontFamily: "Alice",
-    fontSize: 22,
-    lineHeight: 25,
-    textAlign: "center",
-  },
   footerBody: {
     color: palette.textSoft,
     fontFamily: sansFont,
@@ -1241,11 +1199,5 @@ const styles = StyleSheet.create({
   smallButton: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-  },
-  bottomFootnote: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
-    fontSize: 12,
-    textAlign: "center",
   },
 });
