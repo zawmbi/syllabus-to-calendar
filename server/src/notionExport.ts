@@ -6,10 +6,11 @@ import type { ParsedItem } from "./types.js";
 export async function exportItemsToNotion(
   items: ParsedItem[],
   accessToken: string,
+  databaseId: string,
 ) {
-  if (!accessToken || !config.notionDatabaseId) {
+  if (!accessToken || !databaseId) {
     throw new Error(
-      "Notion credentials are missing for this user or database configuration.",
+      "Notion credentials or database link are missing for this user.",
     );
   }
 
@@ -18,7 +19,7 @@ export async function exportItemsToNotion(
   for (const item of items) {
     await notion.pages.create({
       parent: {
-        database_id: config.notionDatabaseId,
+        database_id: databaseId,
       },
       properties: {
         Name: {

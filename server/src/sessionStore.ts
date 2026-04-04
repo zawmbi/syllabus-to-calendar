@@ -6,6 +6,8 @@ type SessionRecord = {
   notion?: {
     accessToken?: string;
     workspaceName?: string;
+    databaseId?: string;
+    databaseTitle?: string;
   };
 };
 

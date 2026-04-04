@@ -6,6 +6,8 @@ export type IntegrationStatus = {
   googleConnected: boolean;
   notionConnected: boolean;
   notionWorkspaceName: string | null;
+  notionDatabaseId: string | null;
+  notionDatabaseTitle: string | null;
 };
 
 export async function fetchIntegrationStatus(sessionId: string) {
@@ -16,6 +18,8 @@ export async function fetchIntegrationStatus(sessionId: string) {
       googleConnected: false,
       notionConnected: false,
       notionWorkspaceName: null,
+      notionDatabaseId: null,
+      notionDatabaseTitle: null,
     } satisfies IntegrationStatus;
   }
 
@@ -52,4 +56,36 @@ export async function beginNotionOAuth(sessionId: string) {
   await Linking.openURL(
     `${baseUrl}/oauth/notion/start?sessionId=${encodeURIComponent(sessionId)}`,
   );
+}
+
+export async function linkNotionDatabase(
+  sessionId: string,
+  databaseLink: string,
+) {
+  const baseUrl = integrationBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Set EXPO_PUBLIC_PARSE_API_BASE_URL before linking Notion.");
+  }
+
+  const response = await fetch(`${baseUrl}/integrations/notion/database`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ sessionId, databaseLink }),
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(errorBody?.error || `Notion link failed: ${response.status}`);
+  }
+
+  return (await response.json()) as {
+    ok: true;
+    databaseId: string;
+    databaseTitle: string;
+  };
 }

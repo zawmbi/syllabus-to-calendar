@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import crypto from "node:crypto";
+import { Client } from "@notionhq/client";
 
 import { config } from "./config.js";
 import { exportItemsToGoogleCalendar } from "./googleExport.js";
@@ -37,7 +38,73 @@ app.get("/integrations/status", (req, res) => {
     googleConnected: Boolean(session.google?.refreshToken),
     notionConnected: Boolean(session.notion?.accessToken),
     notionWorkspaceName: session.notion?.workspaceName || null,
+    notionDatabaseId: session.notion?.databaseId || null,
+    notionDatabaseTitle: session.notion?.databaseTitle || null,
   });
+});
+
+function extractNotionDatabaseId(input: string) {
+  const normalized = input.trim();
+  const match = normalized.match(
+    /([0-9a-fA-F]{8})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{12})/,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`.toLowerCase();
+}
+
+app.post("/integrations/notion/database", async (req, res) => {
+  try {
+    const sessionId = String(req.body.sessionId || "");
+    const databaseLink = String(req.body.databaseLink || "");
+
+    if (!sessionId || !databaseLink) {
+      res.status(400).json({ error: "Missing sessionId or databaseLink" });
+      return;
+    }
+
+    const session = getSession(sessionId);
+
+    if (!session.notion?.accessToken) {
+      res.status(401).json({ error: "Notion account is not connected for this session" });
+      return;
+    }
+
+    const databaseId = extractNotionDatabaseId(databaseLink);
+
+    if (!databaseId) {
+      res.status(400).json({ error: "Could not find a Notion database ID in that link" });
+      return;
+    }
+
+    const notion = new Client({ auth: session.notion.accessToken });
+    const database = await notion.databases.retrieve({ database_id: databaseId });
+    const title =
+      "title" in database && Array.isArray(database.title) && database.title.length
+        ? database.title.map((part) => ("plain_text" in part ? part.plain_text : "")).join("").trim()
+        : "Linked database";
+
+    updateNotionSession(sessionId, {
+      databaseId,
+      databaseTitle: title || "Linked database",
+    });
+
+    res.json({
+      ok: true,
+      databaseId,
+      databaseTitle: title || "Linked database",
+    });
+  } catch (error) {
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Could not verify the Notion database link",
+    });
+  }
 });
 
 app.get("/oauth/google/start", (req, res) => {
@@ -265,7 +332,14 @@ app.post("/exports/notion", async (req, res) => {
       return;
     }
 
-    await exportItemsToNotion(items, session.notion.accessToken);
+    const databaseId = session.notion.databaseId || config.notionDatabaseId;
+
+    if (!databaseId) {
+      res.status(400).json({ error: "No Notion database has been linked for this session" });
+      return;
+    }
+
+    await exportItemsToNotion(items, session.notion.accessToken, databaseId);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({
