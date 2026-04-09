@@ -11,7 +11,7 @@ Return strict JSON with this shape:
     {
       "title": "string",
       "date": "YYYY-MM-DD",
-      "type": "Important date" | "Homework" | "Exam",
+      "type": "Homework" | "Exam" | "Lab / Discussion" | "Break",
       "notes": "string optional"
     }
   ]

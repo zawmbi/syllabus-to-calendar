@@ -5,6 +5,9 @@ import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Animated,
+  LayoutAnimation,
+  UIManager,
   Platform,
   Pressable,
   ScrollView,
@@ -53,11 +56,8 @@ const exportTargets: ExportTarget[] = [
   "Notion",
 ];
 
-const roadmapTabs = ["Assignments", "Exams", "Events"] as const;
+const roadmapTabs = ["All items", "Assignments", "Exams", "Labs"] as const;
 type RoadmapTab = (typeof roadmapTabs)[number];
-
-const previewModes = ["List", "Calendar", "Notion"] as const;
-type PreviewMode = (typeof previewModes)[number];
 
 const navTabs = ["home", "premium", "help", "feedback"] as const;
 type NavTab = (typeof navTabs)[number];
@@ -102,7 +102,19 @@ function formatDisplayDate(rawDate: string) {
   });
 }
 
+function formatDisplayWeekday(rawDate: string) {
+  const date = new Date(`${rawDate}T12:00:00`);
+
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+  });
+}
+
 function itemMatchesTab(item: ParsedItem, tab: RoadmapTab) {
+  if (tab === "All items") {
+    return item.type !== "Break";
+  }
+
   if (tab === "Assignments") {
     return item.type === "Homework";
   }
@@ -111,7 +123,7 @@ function itemMatchesTab(item: ParsedItem, tab: RoadmapTab) {
     return item.type === "Exam";
   }
 
-  return item.type === "Important date";
+  return item.type === "Lab / Discussion";
 }
 
 function labelForItemType(itemType: ParsedItem["type"]) {
@@ -123,7 +135,11 @@ function labelForItemType(itemType: ParsedItem["type"]) {
     return "Exam";
   }
 
-  return "Event";
+  if (itemType === "Lab / Discussion") {
+    return "Lab / Discussion";
+  }
+
+  return "Break";
 }
 
 function groupItemsByDate(items: ParsedItem[]) {
@@ -152,6 +168,68 @@ function editorDestinationCopy(
   }
 
   return "This item will export as a calendar event on this device.";
+}
+
+function inferAcademicBreakItems(items: ParsedItem[]) {
+  if (!items.length) {
+    return [];
+  }
+
+  const dates = items
+    .map((item) => new Date(`${item.date}T12:00:00`))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  if (!dates.length) {
+    return [];
+  }
+
+  const year = dates[0].getFullYear();
+  const month = dates[0].getMonth() + 1;
+
+  if (month >= 7) {
+    return [
+      {
+        title: "Labor Day",
+        date: `${year}-09-07`,
+        type: "Break" as const,
+        notes: "Optional no-class holiday export.",
+      },
+      {
+        title: "Fall break",
+        date: `${year}-10-12`,
+        type: "Break" as const,
+        notes: "Optional no-class break export.",
+      },
+      {
+        title: "Thanksgiving break",
+        date: `${year}-11-26`,
+        type: "Break" as const,
+        notes: "Optional no-class break export.",
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "Martin Luther King Jr. Day",
+      date: `${year}-01-19`,
+      type: "Break" as const,
+      notes: "Optional no-class holiday export.",
+    },
+    {
+      title: "Spring break",
+      date: `${year}-03-16`,
+      type: "Break" as const,
+      notes: "Optional no-class break export.",
+    },
+    {
+      title: "Memorial Day",
+      date: `${year}-05-25`,
+      type: "Break" as const,
+      notes: "Optional no-class holiday export.",
+    },
+  ];
 }
 
 function NavIcon({ tab, active }: { tab: NavTab; active: boolean }) {
@@ -197,6 +275,14 @@ function AppContent() {
   const [fontsLoaded] = useFonts({
     Alice: require("./Alice/Alice-Regular.ttf"),
   });
+  const [loadingOpacity] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
   const [showLanding, setShowLanding] = useState(true);
   const [activeTab, setActiveTab] = useState<NavTab>("home");
   const [selectedTarget, setSelectedTarget] =
@@ -213,11 +299,38 @@ function AppContent() {
   const [isRefreshingConnections, setIsRefreshingConnections] = useState(false);
   const [isPremiumUnlocked, setIsPremiumUnlocked] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
-  const [roadmapTab, setRoadmapTab] = useState<RoadmapTab>("Assignments");
-  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
-  const [previewMode, setPreviewMode] = useState<PreviewMode>("List");
+  const [roadmapTab, setRoadmapTab] = useState<RoadmapTab>("All items");
+  const [expandedItemKeys, setExpandedItemKeys] = useState<string[]>([]);
   const [feedbackText, setFeedbackText] = useState("");
   const [notionDatabaseLink, setNotionDatabaseLink] = useState("");
+  const [includeBreaks, setIncludeBreaks] = useState(false);
+
+  useEffect(() => {
+    if (isImporting || isParsing) {
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(loadingOpacity, {
+            toValue: 0.35,
+            duration: 450,
+            useNativeDriver: true,
+          }),
+          Animated.timing(loadingOpacity, {
+            toValue: 1,
+            duration: 450,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      animation.start();
+
+      return () => {
+        animation.stop();
+        loadingOpacity.setValue(1);
+      };
+    }
+
+    loadingOpacity.setValue(1);
+  }, [isImporting, isParsing, loadingOpacity]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -263,18 +376,17 @@ function AppContent() {
 
   const filteredItems = parsedItems.filter((item) => itemMatchesTab(item, roadmapTab));
   const groupedPreviewItems = Object.entries(groupItemsByDate(filteredItems))
-    .sort(([left], [right]) => left.localeCompare(right))
-    .slice(0, 4);
-  const selectedFilteredItem =
-    filteredItems[Math.min(selectedItemIndex, Math.max(filteredItems.length - 1, 0))] || null;
-  const selectedGlobalIndex = selectedFilteredItem
-    ? parsedItems.findIndex(
-        (item) =>
-          item.title === selectedFilteredItem.title &&
-          item.date === selectedFilteredItem.date &&
-          item.type === selectedFilteredItem.type,
-      )
-    : -1;
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  const keyForItem = (item: ParsedItem) => `${item.title}__${item.date}__${item.type}`;
+
+  const findItemIndex = (item: ParsedItem) =>
+    parsedItems.findIndex(
+      (parsedItem) =>
+        parsedItem.title === item.title &&
+        parsedItem.date === item.date &&
+        parsedItem.type === item.type,
+    );
 
   const updateParsedItem = (index: number, updates: Partial<ParsedItem>) => {
     setParsedItems((current) =>
@@ -284,10 +396,54 @@ function AppContent() {
     );
   };
 
+  const removeParsedItem = (index: number) => {
+    setParsedItems((current) => {
+      const item = current[index];
+      if (item) {
+        setExpandedItemKeys((expanded) =>
+          expanded.filter((key) => key !== keyForItem(item)),
+        );
+      }
+
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
+  const addManualItem = () => {
+    const newItem: ParsedItem =
+      roadmapTab === "Assignments"
+        ? {
+            title: "New assignment",
+            date: "2026-09-01",
+            type: "Homework",
+            notes: "",
+          }
+        : roadmapTab === "Exams"
+          ? {
+              title: "New exam",
+              date: "2026-09-01",
+              type: "Exam",
+              notes: "",
+            }
+          : {
+              title: "New lab or discussion",
+              date: "2026-09-01",
+              type: "Lab / Discussion",
+              notes: "",
+          };
+
+    const itemKey = keyForItem(newItem);
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setParsedItems((current) => [newItem, ...current]);
+    setExpandedItemKeys((current) =>
+      current.includes(itemKey) ? current : [itemKey, ...current],
+    );
+  };
+
   const applyImportedFile = (file: ImportedFile) => {
     setImportedFile(file);
     setParsedItems([]);
-    setSelectedItemIndex(0);
+    setExpandedItemKeys([]);
   };
 
   const refreshConnections = async () => {
@@ -320,8 +476,7 @@ function AppContent() {
     try {
       const result = await parseSyllabus(exampleFile);
       setParsedItems(result.items);
-      setSelectedItemIndex(0);
-      setPreviewMode("List");
+      setExpandedItemKeys([]);
     } catch {
       Alert.alert("Example", "Could not load the example schedule.");
     } finally {
@@ -341,13 +496,25 @@ function AppContent() {
 
       if (!result.canceled) {
         const asset = result.assets[0];
-        applyImportedFile({
+        const nextFile: ImportedFile = {
           name: asset.name || "Syllabus import",
           typeLabel: inferTypeLabel(asset.name, asset.mimeType),
           source: "document",
           uri: asset.uri,
           mimeType: asset.mimeType,
-        });
+        };
+        applyImportedFile(nextFile);
+        setIsParsing(true);
+
+        try {
+          const parsed = await parseSyllabus(nextFile);
+          setParsedItems(parsed.items);
+          setExpandedItemKeys([]);
+        } catch {
+          Alert.alert("Schedule", "Could not create the schedule.");
+        } finally {
+          setIsParsing(false);
+        }
       }
     } catch {
       Alert.alert("Import", "Please try again.");
@@ -376,38 +543,30 @@ function AppContent() {
       if (!result.canceled) {
         const asset = result.assets[0];
         const fileName = asset.fileName || "Scanned syllabus";
-        applyImportedFile({
+        const nextFile: ImportedFile = {
           name: fileName,
           typeLabel: inferTypeLabel(fileName, asset.mimeType),
           source: "photo",
           uri: asset.uri,
           mimeType: asset.mimeType,
-        });
+        };
+        applyImportedFile(nextFile);
+        setIsParsing(true);
+
+        try {
+          const parsed = await parseSyllabus(nextFile);
+          setParsedItems(parsed.items);
+          setExpandedItemKeys([]);
+        } catch {
+          Alert.alert("Schedule", "Could not create the schedule.");
+        } finally {
+          setIsParsing(false);
+        }
       }
     } catch {
       Alert.alert("Photo", "Please try again.");
     } finally {
       setIsImporting(false);
-    }
-  };
-
-  const handleCreateSchedule = async () => {
-    if (!importedFile) {
-      Alert.alert("Syllabus", "Choose a file or photo first.");
-      return;
-    }
-
-    setIsParsing(true);
-
-    try {
-      const result = await parseSyllabus(importedFile);
-      setParsedItems(result.items);
-      setSelectedItemIndex(0);
-      setPreviewMode("List");
-    } catch {
-      Alert.alert("Schedule", "Could not create the schedule.");
-    } finally {
-      setIsParsing(false);
     }
   };
 
@@ -422,14 +581,19 @@ function AppContent() {
     setIsExporting(true);
 
     try {
+      const exportItems =
+        includeBreaks && isPremiumUnlocked
+          ? [...parsedItems, ...inferAcademicBreakItems(parsedItems)]
+          : parsedItems;
+
       if (target === "Apple Calendar") {
-        await exportToDeviceCalendar(parsedItems);
+        await exportToDeviceCalendar(exportItems);
         Alert.alert("Apple Calendar", "Export complete.");
       } else if (target === "Google Calendar") {
-        await beginGoogleExport(parsedItems, sessionId);
+        await beginGoogleExport(exportItems, sessionId);
         Alert.alert("Google Calendar", "Export complete.");
       } else {
-        await beginNotionExport(parsedItems, sessionId);
+        await beginNotionExport(exportItems, sessionId);
         Alert.alert("Notion", "Export complete.");
       }
     } catch (error) {
@@ -492,10 +656,8 @@ function AppContent() {
               <View style={styles.pageColumn}>
                 <Text style={styles.heroTitle}>Syllabus to Calendar</Text>
                 <Text style={styles.heroBody}>Upload. Review. Export.</Text>
-
+                <View style={styles.homePanel}>
                 <View style={styles.heroCard}>
-                  <Text style={styles.cardTitle}>Start with a syllabus</Text>
-                  <Text style={styles.cardBody}>Choose one way to begin.</Text>
                   <View style={styles.actionList}>
                     <Pressable onPress={handlePickDocument} style={styles.actionListRow}>
                       <Text style={styles.actionListLabel}>
@@ -510,111 +672,100 @@ function AppContent() {
                     <Pressable onPress={() => void handleUseExample()} style={styles.actionListRow}>
                       <Text style={styles.actionListLabel}>
                         {isParsing && importedFile?.uri === "demo://sample-syllabus"
-                          ? "Loading example..."
+                          ? "Loading..."
                           : "Load example schedule"}
                       </Text>
                     </Pressable>
                   </View>
 
-                  <View style={styles.inlineDivider} />
-
-                  {importedFile ? (
-                    <View style={styles.stepBlock}>
-                      <Text style={styles.sectionLabel}>Next</Text>
-                      <Pressable
-                        onPress={handleCreateSchedule}
-                        style={styles.actionListRow}
-                        disabled={isParsing}
-                      >
-                        <Text style={styles.actionListLabel}>
-                          {isParsing ? "Reading..." : "Create schedule"}
-                        </Text>
-                      </Pressable>
-                    </View>
+                  {(importedFile || isImporting || isParsing) ? (
+                    <Animated.Text
+                      style={[
+                        styles.fileNameText,
+                        (isImporting || isParsing) && { opacity: loadingOpacity },
+                      ]}
+                    >
+                      {isImporting || isParsing ? "Loading..." : importedFile?.name}
+                    </Animated.Text>
                   ) : null}
-
-                  <Text style={styles.fileNameText}>
-                    {importedFile ? importedFile.name : "No syllabus selected"}
-                  </Text>
                 </View>
 
                 {parsedItems.length ? (
+                  <>
+                  <View style={styles.softDivider} />
                   <View style={styles.contentCard}>
-                    <Text style={styles.sectionLabel}>Review</Text>
                     <Text style={styles.infoTitle}>Review</Text>
 
-                    <View style={styles.navRow}>
-                      {roadmapTabs.map((tab) => {
-                        const isActive = roadmapTab === tab;
+                    <View style={styles.reviewControlStrip}>
+                      <View style={styles.centeredControlRow}>
+                        {roadmapTabs.map((tab) => {
+                          const isActive = roadmapTab === tab;
 
-                        return (
-                          <Pressable
-                            key={tab}
-                            onPress={() => {
-                              setRoadmapTab(tab);
-                              setSelectedItemIndex(0);
-                            }}
-                          >
-                            <Text
-                              style={[styles.navText, isActive && styles.navTextActive]}
+                          return (
+                            <Pressable
+                              key={tab}
+                              onPress={() => {
+                                setRoadmapTab(tab);
+                              }}
                             >
-                              {tab}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-
-                    <View style={styles.previewBlock}>
-                      <View style={styles.previewHeader}>
-                        <Text style={styles.sectionLabel}>Preview</Text>
-                        <View style={styles.navRow}>
-                          {previewModes.map((mode) => {
-                            const isActive = previewMode === mode;
-
-                            return (
-                              <Pressable
-                                key={mode}
-                                onPress={() => setPreviewMode(mode)}
+                              <Text
+                                style={[styles.navText, isActive && styles.navTextActive]}
                               >
-                                <Text
-                                  style={[styles.navText, isActive && styles.navTextActive]}
-                                >
-                                  {mode}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
+                                {tab}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
                       </View>
 
-                      <Text style={styles.previewTitle}>
-                        {previewMode === "List"
-                          ? "List"
-                          : previewMode === "Calendar"
-                            ? "Calendar"
-                            : "Notion"}
-                      </Text>
+                      <View style={styles.centeredControlRow}>
+                        {exportTargets.map((target) => {
+                          const isActive = selectedTarget === target;
+
+                          return (
+                            <Pressable
+                              key={target}
+                              onPress={() => setSelectedTarget(target)}
+                            >
+                              <Text
+                                style={[styles.navText, isActive && styles.navTextActive]}
+                              >
+                                {target === "Google Calendar"
+                                  ? "Google"
+                                  : target === "Apple Calendar"
+                                    ? "Apple"
+                                    : "Notion"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View style={styles.reviewSection}>
+                      <Text style={styles.previewTitle}>{selectedTarget}</Text>
 
                       {filteredItems.length ? (
-                        previewMode === "List" ? (
+                        selectedTarget === "Apple Calendar" ? (
                           <View style={styles.previewList}>
-                            {filteredItems.slice(0, 3).map((item, index) => (
+                            {filteredItems.map((item, index) => (
                               <View key={`${item.title}-${item.date}-${index}`} style={styles.previewListRow}>
-                                <Text style={styles.previewPrimaryText}>{item.title}</Text>
-                                <Text style={styles.previewSecondaryText}>
-                                  {labelForItemType(item.type)} • {formatDisplayDate(item.date)}
-                                </Text>
+                                <View style={styles.previewTextBlock}>
+                                  <Text style={styles.previewPrimaryText}>{item.title}</Text>
+                                  <Text style={styles.previewSecondaryText}>
+                                    {labelForItemType(item.type)} • {formatDisplayWeekday(item.date)} {formatDisplayDate(item.date)}
+                                  </Text>
+                                </View>
                               </View>
                             ))}
                           </View>
-                        ) : previewMode === "Calendar" ? (
+                        ) : selectedTarget === "Google Calendar" ? (
                           <View style={styles.calendarPreview}>
                             {groupedPreviewItems.map(([date, items]) => (
                               <View key={date} style={styles.calendarDayRow}>
                                 <Text style={styles.calendarDate}>{formatDisplayDate(date)}</Text>
                                 <View style={styles.calendarItems}>
-                                  {items.slice(0, 2).map((item, index) => (
+                                  {items.map((item, index) => (
                                     <Text
                                       key={`${item.title}-${index}`}
                                       style={styles.calendarItemText}
@@ -633,7 +784,7 @@ function AppContent() {
                               <Text style={[styles.notionCell, styles.notionHeaderCell]}>Date</Text>
                               <Text style={[styles.notionCell, styles.notionHeaderCell]}>Type</Text>
                             </View>
-                            {filteredItems.slice(0, 3).map((item, index) => (
+                            {filteredItems.map((item, index) => (
                               <View
                                 key={`${item.title}-${item.date}-${index}`}
                                 style={styles.notionRow}
@@ -651,89 +802,144 @@ function AppContent() {
                     </View>
 
                     {filteredItems.length ? (
-                      <View style={styles.itemList}>
-                        {filteredItems.slice(0, 4).map((item, index) => (
-                          <Pressable
-                            key={`${item.title}-${item.date}-${index}`}
-                            onPress={() => setSelectedItemIndex(index)}
-                            style={[
-                              styles.itemRow,
-                              selectedFilteredItem === item && styles.itemRowActive,
-                            ]}
-                          >
-                            <Text style={styles.itemTitle}>{item.title}</Text>
-                            <Text style={styles.itemMeta}>
-                              {labelForItemType(item.type)} • {formatDisplayDate(item.date)}
-                            </Text>
+                      <View style={styles.reviewSection}>
+                        <View style={styles.itemListHeader}>
+                          <View style={styles.itemListHeaderText}>
+                            <Text style={styles.itemListTitle}>Your schedule</Text>
+                          </View>
+                          <Pressable onPress={addManualItem} hitSlop={8} style={styles.addButton}>
+                            <View style={styles.addIcon}>
+                              <View style={styles.addIconHorizontal} />
+                              <View style={styles.addIconVertical} />
+                            </View>
                           </Pressable>
+                        </View>
+                        {filteredItems.map((item, index) => (
+                          <View key={`${item.title}-${item.date}-${index}`} style={styles.itemStack}>
+                            <Pressable
+                              onPress={() => {
+                                const itemKey = keyForItem(item);
+                                LayoutAnimation.configureNext({
+                                  duration: 180,
+                                  create: {
+                                    type: LayoutAnimation.Types.easeInEaseOut,
+                                    property: LayoutAnimation.Properties.opacity,
+                                  },
+                                  update: {
+                                    type: LayoutAnimation.Types.easeInEaseOut,
+                                  },
+                                  delete: {
+                                    type: LayoutAnimation.Types.easeInEaseOut,
+                                    property: LayoutAnimation.Properties.opacity,
+                                  },
+                                });
+                                setExpandedItemKeys((current) =>
+                                  current.includes(itemKey)
+                                    ? current.filter((key) => key !== itemKey)
+                                    : [...current, itemKey],
+                                );
+                              }}
+                              style={[
+                                styles.itemRow,
+                                expandedItemKeys.includes(keyForItem(item)) &&
+                                  styles.itemRowActive,
+                              ]}
+                            >
+                              <View style={styles.previewRowHeader}>
+                                <View style={styles.previewTextBlock}>
+                                  <Text style={styles.itemTitle}>{item.title}</Text>
+                                  <Text style={styles.itemMeta}>
+                                    {labelForItemType(item.type)} • {formatDisplayWeekday(item.date)} {formatDisplayDate(item.date)}
+                                  </Text>
+                                </View>
+                                <Pressable
+                                  onPress={() => {
+                                    const itemIndex = findItemIndex(item);
+
+                                    if (itemIndex >= 0) {
+                                      removeParsedItem(itemIndex);
+                                    }
+                                  }}
+                                  hitSlop={8}
+                                >
+                                  <Text style={styles.deleteText}>x</Text>
+                                </Pressable>
+                              </View>
+                            </Pressable>
+
+                            {expandedItemKeys.includes(keyForItem(item)) && findItemIndex(item) >= 0 ? (
+                              <View style={styles.inlineEditorCard}>
+                                <Text style={styles.inlineEditorLead}>
+                                  {editorDestinationCopy(selectedTarget, notionDatabaseTitle)}
+                                </Text>
+                                <TextInput
+                                  value={item.title}
+                                  onChangeText={(text) =>
+                                    updateParsedItem(findItemIndex(item), { title: text })
+                                  }
+                                  placeholder="Title"
+                                  placeholderTextColor={palette.textSoft}
+                                  style={styles.editorInput}
+                                />
+                                <TextInput
+                                  value={item.date}
+                                  onChangeText={(text) =>
+                                    updateParsedItem(findItemIndex(item), { date: text })
+                                  }
+                                  placeholder="YYYY-MM-DD"
+                                  placeholderTextColor={palette.textSoft}
+                                  style={styles.editorInput}
+                                />
+                                <TextInput
+                                  value={item.notes || ""}
+                                  onChangeText={(text) =>
+                                    updateParsedItem(findItemIndex(item), { notes: text })
+                                  }
+                                  placeholder="Notes"
+                                  placeholderTextColor={palette.textSoft}
+                                  style={[styles.editorInput, styles.editorNotes]}
+                                  multiline
+                                />
+                              </View>
+                            ) : null}
+                          </View>
                         ))}
                       </View>
-                    ) : null}
-
-                    {selectedFilteredItem && selectedGlobalIndex >= 0 ? (
-                      <View style={styles.editorCard}>
-                        <Text style={styles.sectionLabel}>Selected item</Text>
-                        <Text style={styles.editorTitle}>Details</Text>
-                        <Text style={styles.helperText}>
-                          {editorDestinationCopy(selectedTarget, notionDatabaseTitle)}
-                        </Text>
-                        <TextInput
-                          value={selectedFilteredItem.title}
-                          onChangeText={(text) =>
-                            updateParsedItem(selectedGlobalIndex, { title: text })
-                          }
-                          placeholder="Title"
-                          placeholderTextColor={palette.textSoft}
-                          style={styles.editorInput}
-                        />
-                        <TextInput
-                          value={selectedFilteredItem.date}
-                          onChangeText={(text) =>
-                            updateParsedItem(selectedGlobalIndex, { date: text })
-                          }
-                          placeholder="YYYY-MM-DD"
-                          placeholderTextColor={palette.textSoft}
-                          style={styles.editorInput}
-                        />
-                        <TextInput
-                          value={selectedFilteredItem.notes || ""}
-                          onChangeText={(text) =>
-                            updateParsedItem(selectedGlobalIndex, { notes: text })
-                          }
-                          placeholder="Notes"
-                          placeholderTextColor={palette.textSoft}
-                          style={[styles.editorInput, styles.editorNotes]}
-                          multiline
-                        />
+                    ) : (
+                      <View style={styles.reviewSection}>
+                        <View style={styles.itemListHeader}>
+                          <View style={styles.itemListHeaderText}>
+                            <Text style={styles.itemListTitle}>Your schedule</Text>
+                          </View>
+                          <Pressable onPress={addManualItem} hitSlop={8} style={styles.addButton}>
+                            <View style={styles.addIcon}>
+                              <View style={styles.addIconHorizontal} />
+                              <View style={styles.addIconVertical} />
+                            </View>
+                          </Pressable>
+                        </View>
                       </View>
-                    ) : null}
+                    )}
                   </View>
+                  </>
                 ) : null}
 
                 {parsedItems.length ? (
+                  <>
+                  <View style={styles.softDivider} />
                   <View style={styles.contentCard}>
-                    <Text style={styles.sectionLabel}>Export</Text>
-                    <Text style={styles.infoTitle}>Choose a destination</Text>
-
-                    <View style={styles.exportList}>
-                      {exportTargets.map((target) => {
-                        const isSelected = target === selectedTarget;
-
-                        return (
-                          <Pressable
-                            key={target}
-                            onPress={() => handleExport(target)}
-                            style={styles.exportRow}
-                          >
-                            <Text
-                              style={[styles.exportText, isSelected && styles.exportTextActive]}
-                            >
-                              {isExporting && isSelected ? "Working..." : target}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                    <Pressable
+                      onPress={() => handleExport(selectedTarget)}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        styles.exportButton,
+                        pressed && styles.primaryButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.primaryButtonText}>
+                        {isExporting ? "Working..." : `Export to ${selectedTarget}`}
+                      </Text>
+                    </Pressable>
 
                     <View style={styles.connectionList}>
                       <View style={styles.connectionRow}>
@@ -759,6 +965,17 @@ function AppContent() {
                         </Pressable>
                       </View>
                     </View>
+
+                    {isPremiumUnlocked ? (
+                      <View style={styles.connectionRow}>
+                        <Text style={styles.connectionLabel}>Include breaks and holidays</Text>
+                        <Pressable onPress={() => setIncludeBreaks((current) => !current)}>
+                          <Text style={styles.connectionAction}>
+                            {includeBreaks ? "On" : "Off"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
 
                     {selectedTarget === "Notion" ? (
                       <View style={styles.editorCard}>
@@ -795,17 +1012,14 @@ function AppContent() {
                         >
                           <Text style={styles.secondaryButtonText}>Save database</Text>
                         </Pressable>
-                        {notionDatabaseTitle ? (
-                          <Text style={styles.helperText}>{notionDatabaseTitle}</Text>
-                        ) : null}
+                            {notionDatabaseTitle ? (
+                              <Text style={styles.helperText}>{notionDatabaseTitle}</Text>
+                            ) : null}
                       </View>
                     ) : null}
                   </View>
+                  </>
                 ) : null}
-
-                <View style={styles.adSlot}>
-                  <Text style={styles.adLabel}>Ad space</Text>
-                  <Text style={styles.adCopy}>Reserved for a banner placement.</Text>
                 </View>
               </View>
             ) : null}
@@ -818,8 +1032,10 @@ function AppContent() {
                   <Text style={styles.cardBody}>$3.99 per month.</Text>
                   <View style={styles.benefitList}>
                     <Text style={styles.benefitText}>Unlimited syllabus uploads</Text>
+                    <Text style={styles.benefitText}>Export to multiple destinations</Text>
                     <Text style={styles.benefitText}>Google, Apple, and Notion export</Text>
                     <Text style={styles.benefitText}>Full editing before export</Text>
+                    <Text style={styles.benefitText}>Automatic breaks and holiday detection</Text>
                     <Text style={styles.benefitText}>Future attendance tools</Text>
                   </View>
                   <Pressable
@@ -966,16 +1182,24 @@ const styles = StyleSheet.create({
     backgroundColor: palette.background,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingTop: 8,
     paddingBottom: 28,
-    alignItems: "center",
+    alignItems: "stretch",
   },
   pageColumn: {
     width: "100%",
-    maxWidth: 560,
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 10,
+  },
+  homePanel: {
+    width: "100%",
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
+    gap: 16,
   },
   heroGlowOne: {
     position: "absolute",
@@ -1012,13 +1236,9 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     width: "100%",
-    backgroundColor: palette.surface,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 16,
-    gap: 10,
-    alignItems: "center",
+    padding: 0,
+    gap: 8,
+    alignItems: "stretch",
   },
   summaryStrip: {
     width: "100%",
@@ -1135,28 +1355,13 @@ const styles = StyleSheet.create({
     fontFamily: sansFont,
     fontSize: 13,
     textAlign: "center",
-  },
-  stepBlock: {
-    width: "100%",
-    gap: 2,
-    alignItems: "center",
-  },
-  stepTitle: {
-    color: palette.text,
-    fontFamily: "Alice",
-    fontSize: 18,
-    lineHeight: 21,
-    textAlign: "center",
+    marginTop: 2,
   },
   contentCard: {
     width: "100%",
-    backgroundColor: palette.surface,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 16,
-    gap: 10,
-    alignItems: "center",
+    padding: 0,
+    gap: 8,
+    alignItems: "stretch",
   },
   sectionLabel: {
     color: palette.textSoft,
@@ -1173,10 +1378,30 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     textAlign: "center",
   },
+  reviewIntro: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  reviewControlStrip: {
+    width: "100%",
+    gap: 10,
+    paddingTop: 2,
+    alignItems: "center",
+  },
+  centeredControlRow: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 18,
+  },
   navRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
+    gap: 18,
     justifyContent: "center",
   },
   navText: {
@@ -1191,12 +1416,17 @@ const styles = StyleSheet.create({
   previewBlock: {
     width: "100%",
     gap: 8,
-    alignItems: "center",
+    alignItems: "stretch",
+  },
+  reviewSection: {
+    width: "100%",
+    gap: 10,
+    paddingTop: 4,
   },
   previewHeader: {
     width: "100%",
     gap: 6,
-    alignItems: "center",
+    alignItems: "stretch",
   },
   previewTitle: {
     color: palette.text,
@@ -1204,6 +1434,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 21,
     textAlign: "center",
+    alignSelf: "center",
   },
   previewList: {
     width: "100%",
@@ -1213,21 +1444,38 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     backgroundColor: palette.surfaceSoft,
+    gap: 3,
+  },
+  previewRowHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  previewTextBlock: {
+    flex: 1,
     gap: 3,
   },
   previewPrimaryText: {
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 14,
-    textAlign: "center",
+    textAlign: "left",
   },
   previewSecondaryText: {
     color: palette.textSoft,
     fontFamily: sansFont,
     fontSize: 12,
-    textAlign: "center",
+    textAlign: "left",
+  },
+  deleteText: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 18,
+    lineHeight: 18,
   },
   calendarPreview: {
     width: "100%",
@@ -1236,15 +1484,15 @@ const styles = StyleSheet.create({
   calendarDayRow: {
     width: "100%",
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
     alignItems: "flex-start",
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderRadius: 14,
     backgroundColor: palette.surfaceSoft,
   },
   calendarDate: {
-    width: 68,
+    minWidth: 48,
     color: palette.forest,
     fontFamily: sansFont,
     fontSize: 13,
@@ -1295,13 +1543,66 @@ const styles = StyleSheet.create({
     width: "100%",
     gap: 8,
   },
+  itemListHeader: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    minHeight: 30,
+  },
+  itemListHeaderText: {
+    alignItems: "center",
+    gap: 0,
+  },
+  itemListTitle: {
+    color: palette.text,
+    fontFamily: "Alice",
+    fontSize: 18,
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  addButton: {
+    position: "absolute",
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceSoft,
+  },
+  addIcon: {
+    width: 12,
+    height: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addIconHorizontal: {
+    position: "absolute",
+    width: 12,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: palette.forest,
+  },
+  addIconVertical: {
+    position: "absolute",
+    width: 2,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: palette.forest,
+  },
+  itemStack: {
+    width: "100%",
+    gap: 8,
+  },
   itemRow: {
     width: "100%",
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     backgroundColor: palette.surfaceSoft,
     borderRadius: 14,
-    alignItems: "center",
     gap: 4,
   },
   itemRowActive: {
@@ -1312,13 +1613,13 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 14,
-    textAlign: "center",
+    textAlign: "left",
   },
   itemMeta: {
     color: palette.textSoft,
     fontFamily: sansFont,
     fontSize: 12,
-    textAlign: "center",
+    textAlign: "left",
   },
   emptyStateText: {
     color: palette.textSoft,
@@ -1333,6 +1634,20 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
     alignItems: "center",
+  },
+  inlineEditorCard: {
+    width: "100%",
+    backgroundColor: palette.surfaceSoft,
+    borderRadius: 16,
+    padding: 10,
+    gap: 8,
+    alignItems: "stretch",
+  },
+  inlineEditorLead: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 12,
+    textAlign: "left",
   },
   editorTitle: {
     color: palette.text,
@@ -1360,6 +1675,10 @@ const styles = StyleSheet.create({
   exportList: {
     width: "100%",
     gap: 8,
+  },
+  exportButton: {
+    alignSelf: "center",
+    marginTop: 4,
   },
   exportRow: {
     width: "100%",
@@ -1412,29 +1731,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
   },
-  adSlot: {
+  softDivider: {
     width: "100%",
-    backgroundColor: palette.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    gap: 4,
-  },
-  adLabel: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 2,
-  },
-  adCopy: {
-    color: palette.textSoft,
-    fontFamily: sansFont,
-    fontSize: 13,
-    textAlign: "center",
+    height: 1,
+    backgroundColor: "rgba(226, 215, 195, 0.8)",
   },
   benefitList: {
     gap: 8,
@@ -1461,7 +1761,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   navShell: {
-    marginHorizontal: 20,
+    marginHorizontal: 12,
     marginBottom: 16,
     backgroundColor: "rgba(251, 247, 240, 0.96)",
     borderRadius: 999,

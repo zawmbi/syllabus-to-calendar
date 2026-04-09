@@ -1,6 +1,6 @@
 export type ImportKind = "document" | "photo";
 export type ExportTarget = "Google Calendar" | "Apple Calendar" | "Notion";
-export type ParsedItemType = "Important date" | "Homework" | "Exam";
+export type ParsedItemType = "Homework" | "Exam" | "Lab / Discussion" | "Break";
 
 export type ParsedItem = {
   title: string;

@@ -1,4 +1,4 @@
-export type ParsedItemType = "Important date" | "Homework" | "Exam";
+export type ParsedItemType = "Homework" | "Exam" | "Lab / Discussion" | "Break";
 
 export type ParsedItem = {
   title: string;

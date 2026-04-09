@@ -53,10 +53,19 @@ target 'SyllabustoCalendar' do
     fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
     if File.exist?(fmt_base)
       content = File.read(fmt_base)
-      patched = content.gsub(
-        /^(#elif defined\(__cpp_consteval\)\n#  define FMT_USE_CONSTEVAL) 1$/,
-        "\\1 0"
-      )
+      patched = content
+        .gsub(
+          /^(#elif defined\(__apple_build_version__\) && __apple_build_version__ < 14000029L\n#  define FMT_USE_CONSTEVAL) 0/m,
+          "\\1 0"
+        )
+        .gsub(
+          /^(#elif defined\(__cpp_consteval\)\n#  define FMT_USE_CONSTEVAL) 1/m,
+          "\\1 0"
+        )
+        .gsub(
+          /^(#elif FMT_GCC_VERSION >= 1002 \|\| FMT_CLANG_VERSION >= 1101\n#  define FMT_USE_CONSTEVAL) 1/m,
+          "\\1 0"
+        )
 
       if patched != content
         Pod::UI.puts 'Applying fmt consteval workaround for newer Xcode toolchains'

@@ -1,5 +1,5 @@
 import * as Calendar from "expo-calendar";
-import { Linking, Platform } from "react-native";
+import { Platform } from "react-native";
 
 import { appConfig } from "../config";
 import type { ParsedItem } from "../types";
@@ -8,22 +8,6 @@ function buildDateWindow(rawDate: string) {
   const start = new Date(`${rawDate}T09:00:00`);
   const end = new Date(`${rawDate}T10:00:00`);
   return { start, end };
-}
-
-function formatGoogleDate(value: Date) {
-  return value.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-}
-
-function firstGoogleEventUrl(item: ParsedItem) {
-  const { start, end } = buildDateWindow(item.date);
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: item.title,
-    dates: `${formatGoogleDate(start)}/${formatGoogleDate(end)}`,
-    details: item.notes || item.type,
-  });
-
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 async function getWritableCalendarId() {
@@ -66,23 +50,21 @@ export async function exportToDeviceCalendar(items: ParsedItem[]) {
 }
 
 export async function beginGoogleExport(items: ParsedItem[], sessionId: string) {
-  if (appConfig.googleExportUrl) {
-    const response = await fetch(appConfig.googleExportUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ items, sessionId }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Google export failed: ${response.status}`);
-    }
-
-    return;
+  if (!appConfig.googleExportUrl) {
+    throw new Error("Google export needs the backend connection to be configured.");
   }
 
-  await Linking.openURL(firstGoogleEventUrl(items[0]));
+  const response = await fetch(appConfig.googleExportUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ items, sessionId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google export failed: ${response.status}`);
+  }
 }
 
 export async function beginNotionExport(items: ParsedItem[], sessionId: string) {
