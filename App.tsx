@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   Animated,
+  AppState,
   LayoutAnimation,
   UIManager,
   Platform,
@@ -289,6 +290,7 @@ function AppContent() {
     useState<ExportTarget>("Google Calendar");
   const [importedFile, setImportedFile] = useState<ImportedFile | null>(null);
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [parseMode, setParseMode] = useState<"demo" | "live" | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -374,9 +376,32 @@ function AppContent() {
     void setupPurchases();
   }, [sessionId]);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        return;
+      }
+
+      void refreshConnections();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [sessionId]);
+
   const filteredItems = parsedItems.filter((item) => itemMatchesTab(item, roadmapTab));
   const groupedPreviewItems = Object.entries(groupItemsByDate(filteredItems))
     .sort(([left], [right]) => left.localeCompare(right));
+  const notionReady = notionConnected && Boolean(notionDatabaseTitle);
+  const exportBlockedReason =
+    selectedTarget === "Google Calendar" && !googleConnected
+      ? "Connect Google Calendar before exporting."
+      : selectedTarget === "Notion" && !notionConnected
+        ? "Connect Notion before exporting."
+        : selectedTarget === "Notion" && !notionReady
+          ? "Link a Notion database before exporting."
+          : null;
 
   const keyForItem = (item: ParsedItem) => `${item.title}__${item.date}__${item.type}`;
 
@@ -443,6 +468,7 @@ function AppContent() {
   const applyImportedFile = (file: ImportedFile) => {
     setImportedFile(file);
     setParsedItems([]);
+    setParseMode(null);
     setExpandedItemKeys([]);
   };
 
@@ -476,6 +502,7 @@ function AppContent() {
     try {
       const result = await parseSyllabus(exampleFile);
       setParsedItems(result.items);
+      setParseMode(result.mode);
       setExpandedItemKeys([]);
     } catch {
       Alert.alert("Example", "Could not load the example schedule.");
@@ -509,8 +536,10 @@ function AppContent() {
         try {
           const parsed = await parseSyllabus(nextFile);
           setParsedItems(parsed.items);
+          setParseMode(parsed.mode);
           setExpandedItemKeys([]);
         } catch {
+          setParseMode(null);
           Alert.alert("Schedule", "Could not create the schedule.");
         } finally {
           setIsParsing(false);
@@ -556,8 +585,10 @@ function AppContent() {
         try {
           const parsed = await parseSyllabus(nextFile);
           setParsedItems(parsed.items);
+          setParseMode(parsed.mode);
           setExpandedItemKeys([]);
         } catch {
+          setParseMode(null);
           Alert.alert("Schedule", "Could not create the schedule.");
         } finally {
           setIsParsing(false);
@@ -575,6 +606,11 @@ function AppContent() {
 
     if (!parsedItems.length) {
       Alert.alert("Export", "Create the schedule first.");
+      return;
+    }
+
+    if (exportBlockedReason) {
+      Alert.alert("Export", exportBlockedReason);
       return;
     }
 
@@ -687,6 +723,22 @@ function AppContent() {
                     >
                       {isImporting || isParsing ? "Loading..." : importedFile?.name}
                     </Animated.Text>
+                  ) : null}
+
+                  {parseMode === "live" ? (
+                    <View style={styles.statusBanner}>
+                      <Text style={styles.statusBannerText}>
+                        Live parse ready. Review dates before exporting.
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {parseMode === "demo" ? (
+                    <View style={[styles.statusBanner, styles.statusBannerWarning]}>
+                      <Text style={styles.statusBannerText}>
+                        Showing fallback example-style results. Check each item before export.
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
 
@@ -930,9 +982,11 @@ function AppContent() {
                   <View style={styles.contentCard}>
                     <Pressable
                       onPress={() => handleExport(selectedTarget)}
+                      disabled={Boolean(exportBlockedReason) || isExporting}
                       style={({ pressed }) => [
                         styles.primaryButton,
                         styles.exportButton,
+                        (Boolean(exportBlockedReason) || isExporting) && styles.buttonDisabled,
                         pressed && styles.primaryButtonPressed,
                       ]}
                     >
@@ -941,18 +995,63 @@ function AppContent() {
                       </Text>
                     </Pressable>
 
+                    {exportBlockedReason ? (
+                      <Text style={styles.helperText}>{exportBlockedReason}</Text>
+                    ) : null}
+
                     <View style={styles.connectionList}>
                       <View style={styles.connectionRow}>
                         <Text style={styles.connectionLabel}>Google Calendar</Text>
-                        <Text style={styles.connectionStatusText}>
-                          {googleConnected ? "Connected" : "Not connected"}
-                        </Text>
+                        {googleConnected ? (
+                          <Text style={styles.connectionStatusText}>Connected</Text>
+                        ) : (
+                          <Pressable
+                            onPress={async () => {
+                              try {
+                                await beginGoogleOAuth(sessionId);
+                              } catch (error) {
+                                Alert.alert(
+                                  "Google Calendar",
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Could not start Google connection.",
+                                );
+                              }
+                            }}
+                          >
+                            <Text style={styles.connectionAction}>Connect</Text>
+                          </Pressable>
+                        )}
                       </View>
 
                       <View style={styles.connectionRow}>
                         <Text style={styles.connectionLabel}>Notion</Text>
+                        {notionConnected ? (
+                          <Text style={styles.connectionStatusText}>Connected</Text>
+                        ) : (
+                          <Pressable
+                            onPress={async () => {
+                              try {
+                                await beginNotionOAuth(sessionId);
+                              } catch (error) {
+                                Alert.alert(
+                                  "Notion",
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Could not start Notion connection.",
+                                );
+                              }
+                            }}
+                          >
+                            <Text style={styles.connectionAction}>Connect</Text>
+                          </Pressable>
+                        )}
+                      </View>
+
+                      <View style={styles.connectionRow}>
+                        <Text style={styles.connectionLabel}>Notion database</Text>
                         <Text style={styles.connectionStatusText}>
-                          {notionConnected ? "Connected" : "Not connected"}
+                          {notionDatabaseTitle || (notionConnected ? "Not linked" : "Connect first")}
                         </Text>
                       </View>
 
@@ -980,41 +1079,77 @@ function AppContent() {
                     {selectedTarget === "Notion" ? (
                       <View style={styles.editorCard}>
                         <Text style={styles.editorTitle}>Notion database</Text>
-                        <TextInput
-                          value={notionDatabaseLink}
-                          onChangeText={setNotionDatabaseLink}
-                          placeholder="Paste a Notion database link"
-                          placeholderTextColor={palette.textSoft}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          style={styles.editorInput}
-                        />
-                        <Pressable
-                          onPress={async () => {
-                            try {
-                              const result = await linkNotionDatabase(
-                                sessionId,
-                                notionDatabaseLink,
-                              );
-                              setNotionDatabaseTitle(result.databaseTitle);
-                              Alert.alert("Notion", "Database linked.");
-                            } catch (error) {
-                              Alert.alert(
-                                "Notion",
-                                error instanceof Error ? error.message : "Could not link database.",
-                              );
-                            }
-                          }}
-                          style={({ pressed }) => [
-                            styles.secondaryButton,
-                            pressed && styles.secondaryButtonPressed,
-                          ]}
-                        >
-                          <Text style={styles.secondaryButtonText}>Save database</Text>
-                        </Pressable>
+                        {notionConnected ? (
+                          <>
+                            <TextInput
+                              value={notionDatabaseLink}
+                              onChangeText={setNotionDatabaseLink}
+                              placeholder="Paste a Notion database link"
+                              placeholderTextColor={palette.textSoft}
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                              style={styles.editorInput}
+                            />
+                            <Pressable
+                              onPress={async () => {
+                                try {
+                                  const result = await linkNotionDatabase(
+                                    sessionId,
+                                    notionDatabaseLink,
+                                  );
+                                  setNotionDatabaseTitle(result.databaseTitle);
+                                  Alert.alert("Notion", "Database linked.");
+                                } catch (error) {
+                                  Alert.alert(
+                                    "Notion",
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Could not link database.",
+                                  );
+                                }
+                              }}
+                              style={({ pressed }) => [
+                                styles.secondaryButton,
+                                pressed && styles.secondaryButtonPressed,
+                              ]}
+                            >
+                              <Text style={styles.secondaryButtonText}>Save database</Text>
+                            </Pressable>
                             {notionDatabaseTitle ? (
                               <Text style={styles.helperText}>{notionDatabaseTitle}</Text>
-                            ) : null}
+                            ) : (
+                              <Text style={styles.helperText}>
+                                Connect Notion, then paste the database link you want to export into.
+                              </Text>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.helperText}>
+                              Connect Notion first, then paste a database link here.
+                            </Text>
+                            <Pressable
+                              onPress={async () => {
+                                try {
+                                  await beginNotionOAuth(sessionId);
+                                } catch (error) {
+                                  Alert.alert(
+                                    "Notion",
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Could not start Notion connection.",
+                                  );
+                                }
+                              }}
+                              style={({ pressed }) => [
+                                styles.secondaryButton,
+                                pressed && styles.secondaryButtonPressed,
+                              ]}
+                            >
+                              <Text style={styles.secondaryButtonText}>Connect Notion</Text>
+                            </Pressable>
+                          </>
+                        )}
                       </View>
                     ) : null}
                   </View>
@@ -1356,6 +1491,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
     marginTop: 2,
+  },
+  statusBanner: {
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  statusBannerWarning: {
+    backgroundColor: "#F3E8D5",
+    borderColor: "#D8C48F",
+  },
+  statusBannerText: {
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
   },
   contentCard: {
     width: "100%",
