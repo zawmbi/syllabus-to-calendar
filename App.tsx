@@ -233,6 +233,50 @@ function inferAcademicBreakItems(items: ParsedItem[]) {
   ];
 }
 
+function isValidIsoDate(rawDate: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return false;
+  }
+
+  const date = new Date(`${rawDate}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return date.toISOString().slice(0, 10) === rawDate;
+}
+
+function summarizeExportReadiness(items: ParsedItem[]) {
+  let missingTitleCount = 0;
+  let invalidDateCount = 0;
+  let suspiciousYearCount = 0;
+  const currentYear = new Date().getFullYear();
+
+  for (const item of items) {
+    if (!item.title.trim()) {
+      missingTitleCount += 1;
+    }
+
+    if (!isValidIsoDate(item.date)) {
+      invalidDateCount += 1;
+      continue;
+    }
+
+    const year = Number(item.date.slice(0, 4));
+    if (year < currentYear - 1 || year > currentYear + 2) {
+      suspiciousYearCount += 1;
+    }
+  }
+
+  return {
+    missingTitleCount,
+    invalidDateCount,
+    suspiciousYearCount,
+    reviewCount: missingTitleCount + invalidDateCount + suspiciousYearCount,
+  };
+}
+
 function NavIcon({ tab, active }: { tab: NavTab; active: boolean }) {
   const color = active ? palette.forest : palette.textSoft;
 
@@ -394,6 +438,11 @@ function AppContent() {
   const groupedPreviewItems = Object.entries(groupItemsByDate(filteredItems))
     .sort(([left], [right]) => left.localeCompare(right));
   const notionReady = notionConnected && Boolean(notionDatabaseTitle);
+  const exportItemsPreview =
+    includeBreaks && isPremiumUnlocked
+      ? [...parsedItems, ...inferAcademicBreakItems(parsedItems)]
+      : parsedItems;
+  const exportReadiness = summarizeExportReadiness(exportItemsPreview);
   const exportBlockedReason =
     selectedTarget === "Google Calendar" && !googleConnected
       ? "Connect Google Calendar before exporting."
@@ -617,10 +666,60 @@ function AppContent() {
     setIsExporting(true);
 
     try {
-      const exportItems =
-        includeBreaks && isPremiumUnlocked
-          ? [...parsedItems, ...inferAcademicBreakItems(parsedItems)]
-          : parsedItems;
+      const exportItems = exportItemsPreview;
+
+      if (exportReadiness.missingTitleCount || exportReadiness.invalidDateCount) {
+        Alert.alert(
+          "Review items first",
+          [
+            exportReadiness.missingTitleCount
+              ? `${exportReadiness.missingTitleCount} item${
+                  exportReadiness.missingTitleCount === 1 ? "" : "s"
+                } need a title`
+              : null,
+            exportReadiness.invalidDateCount
+              ? `${exportReadiness.invalidDateCount} item${
+                  exportReadiness.invalidDateCount === 1 ? "" : "s"
+                } have an invalid date`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        return;
+      }
+
+      const shouldContinue = await new Promise<boolean>((resolve) => {
+        const reviewLines = [
+          `${exportItems.length} item${exportItems.length === 1 ? "" : "s"} ready for ${target}.`,
+          exportReadiness.suspiciousYearCount
+            ? `${exportReadiness.suspiciousYearCount} item${
+                exportReadiness.suspiciousYearCount === 1 ? "" : "s"
+              } use a year that looks unusual.`
+            : null,
+          parseMode === "demo"
+            ? "These results are fallback/demo-style items, so review carefully."
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        Alert.alert("Confirm export", reviewLines, [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => resolve(false),
+          },
+          {
+            text: "Export",
+            onPress: () => resolve(true),
+          },
+        ]);
+      });
+
+      if (!shouldContinue) {
+        return;
+      }
 
       if (target === "Apple Calendar") {
         await exportToDeviceCalendar(exportItems);
@@ -997,6 +1096,29 @@ function AppContent() {
 
                     {exportBlockedReason ? (
                       <Text style={styles.helperText}>{exportBlockedReason}</Text>
+                    ) : null}
+
+                    {!exportBlockedReason ? (
+                      <View style={styles.exportSummaryCard}>
+                        <Text style={styles.exportSummaryText}>
+                          {exportItemsPreview.length} item
+                          {exportItemsPreview.length === 1 ? "" : "s"} ready for export
+                        </Text>
+                        {exportReadiness.reviewCount ? (
+                          <Text style={[styles.exportSummaryText, styles.exportSummaryWarningText]}>
+                            {exportReadiness.reviewCount} need review before export
+                          </Text>
+                        ) : (
+                          <Text style={styles.exportSummarySubtext}>
+                            No title or date issues detected.
+                          </Text>
+                        )}
+                        {parseMode === "demo" ? (
+                          <Text style={[styles.exportSummarySubtext, styles.exportSummaryWarningText]}>
+                            Fallback/demo parse detected. Double-check every date.
+                          </Text>
+                        ) : null}
+                      </View>
                     ) : null}
 
                     <View style={styles.connectionList}>
@@ -1834,6 +1956,33 @@ const styles = StyleSheet.create({
   exportButton: {
     alignSelf: "center",
     marginTop: 4,
+  },
+  exportSummaryCard: {
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 4,
+    alignItems: "center",
+  },
+  exportSummaryText: {
+    color: palette.text,
+    fontFamily: sansFont,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  exportSummarySubtext: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 12,
+    textAlign: "center",
+  },
+  exportSummaryWarningText: {
+    color: palette.forest,
+    fontWeight: "600",
   },
   exportRow: {
     width: "100%",
