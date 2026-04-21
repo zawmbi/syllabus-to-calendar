@@ -12,6 +12,7 @@ node_modules/
 dist/
 
 .env
+server/.env
 
 
 # Flutter repo-specific
