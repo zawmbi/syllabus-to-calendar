@@ -1341,12 +1341,16 @@ function AppContent() {
               <View style={styles.pageColumn}>
                 <Text style={styles.heroTitle}>Help</Text>
                 <View style={styles.contentCard}>
-                  <Text style={styles.infoTitle}>How it works</Text>
+                  <Text style={styles.infoTitle}>Instructions</Text>
                   <View style={styles.helpList}>
-                    <Text style={styles.helpText}>1. Add your syllabus file.</Text>
-                    <Text style={styles.helpText}>2. Create the schedule in this app.</Text>
-                    <Text style={styles.helpText}>3. Review and edit syllabus items.</Text>
-                    <Text style={styles.helpText}>4. Export assignments and important dates to your preferred platform.</Text>
+                    <Text style={styles.helpText}>1. Choose a file, photo, or example syllabus.</Text>
+                    <Text style={styles.helpText}>2. The app reads it automatically and builds your schedule.</Text>
+                    <Text style={styles.helpText}>3. Switch between all items, assignments, exams, and labs.</Text>
+                    <Text style={styles.helpText}>4. Tap any item to edit details or use `+` to add something missing.</Text>
+                    <Text style={styles.helpText}>5. Choose Google Calendar, Apple Calendar, or Notion to preview the export.</Text>
+                    <Text style={styles.helpText}>6. Connect Google or Notion before exporting there.</Text>
+                    <Text style={styles.helpText}>7. For Notion, paste the database link you want to export into.</Text>
+                    <Text style={styles.helpText}>8. Premium adds multi-destination export and optional breaks and holidays.</Text>
                   </View>
                 </View>
               </View>
