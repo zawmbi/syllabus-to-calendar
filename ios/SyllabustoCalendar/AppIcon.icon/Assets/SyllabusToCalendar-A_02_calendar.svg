@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>
+  <filter id="aPageBlur" x="-10%" y="-10%" width="120%" height="120%">
+    <feGaussianBlur stdDeviation="14"/>
+  </filter>
+  <linearGradient id="aTileShade" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.4"/>
+    <stop offset="1" stop-color="#E6DDBE" stop-opacity="0.4"/>
+  </linearGradient>
+  <linearGradient id="aPaperGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+    <stop offset="1" stop-color="#E6DDBE" stop-opacity="0.45"/>
+  </linearGradient>
+  <linearGradient id="aFoldGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#E6DDBE" stop-opacity="0.0"/>
+    <stop offset="1" stop-color="#9F8E5F" stop-opacity="0.55"/>
+  </linearGradient>
+</defs><rect x="152" y="232" width="720" height="720" rx="92" fill="#F5EFDC"/><rect x="152" y="232" width="720" height="720" rx="92" fill="url(#aTileShade)"/><path d="M 152 324
+        Q 152 232, 244 232
+        L 780 232
+        Q 872 232, 872 324
+        L 872 364
+        L 152 364 Z" fill="#13301C"/><rect x="270" y="210" width="36" height="64" rx="14" fill="#13301C"/><rect x="718" y="210" width="36" height="64" rx="14" fill="#13301C"/><rect x="188" y="400" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="354" y="400" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="520" y="400" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="686" y="400" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="188" y="533" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="354" y="533" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="520" y="533" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="686" y="533" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="188" y="666" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="354" y="666" width="150" height="117" rx="20" fill="#D9B25A"/><rect x="520" y="666" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="686" y="666" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="188" y="799" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="354" y="799" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="520" y="799" width="150" height="117" rx="20" fill="#E6DDBE"/><rect x="686" y="799" width="150" height="117" rx="20" fill="#E6DDBE"/></svg>

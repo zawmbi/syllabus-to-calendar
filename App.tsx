@@ -1,8 +1,9 @@
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
+import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Alert,
   Animated,
@@ -15,9 +16,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 import {
   beginGoogleExport,
@@ -69,6 +72,29 @@ const sansFont = Platform.select({
   default: "System",
 });
 
+const importActions = [
+  { key: "file", label: "Choose file" },
+  { key: "photo", label: "Choose photo" },
+  { key: "example", label: "Load example schedule" },
+] as const;
+
+const redesignColors = {
+  paper: "#F5EFDC",
+  paperDeep: "#EBE3C8",
+  paperShade: "#E6DDBE",
+  card: "#FBF7E9",
+  ink: "#1A2A20",
+  inkSoft: "#4A5A50",
+  inkMute: "#7A8378",
+  hairline: "#D8D0B4",
+  hairlineSoft: "#E4DCC0",
+  forest: "#28583B",
+  forestDeep: "#1C4129",
+  forestShadow: "#13301C",
+  gold: "#D9B25A",
+  goldDeep: "#B8923B",
+} as const;
+
 function createSessionId() {
   return `session-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
@@ -76,6 +102,15 @@ function createSessionId() {
 function inferTypeLabel(name?: string, mimeType?: string | null) {
   if (mimeType?.includes("pdf") || name?.toLowerCase().endsWith(".pdf")) {
     return "PDF";
+  }
+
+  if (
+    mimeType?.includes("wordprocessingml.document") ||
+    mimeType?.includes("msword") ||
+    name?.toLowerCase().endsWith(".docx") ||
+    name?.toLowerCase().endsWith(".doc")
+  ) {
+    return "DOCX";
   }
 
   if (mimeType?.includes("heic") || name?.toLowerCase().endsWith(".heic")) {
@@ -277,6 +312,210 @@ function summarizeExportReadiness(items: ParsedItem[]) {
   };
 }
 
+function IconBase({
+  children,
+  size = 22,
+  color = "currentColor",
+  strokeWidth = 1.6,
+  fill = "none",
+}: {
+  children: ReactNode;
+  size?: number;
+  color?: string;
+  strokeWidth?: number;
+  fill?: string;
+}) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={fill}
+      stroke={color}
+      strokeWidth={strokeWidth}
+    >
+      {children}
+    </Svg>
+  );
+}
+
+function IconUpload({ size = 22, color = "currentColor", strokeWidth = 1.7 }) {
+  return (
+    <IconBase size={size} color={color} strokeWidth={strokeWidth}>
+      <Path d="M12 16V4" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 9l5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconCamera({ size = 18, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Path d="M3 8h3l2-2h8l2 2h3v11H3z" strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx="12" cy="13" r="3.5" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconSparkleLine({ size = 18, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconCalendar({ size = 20, color = "currentColor", strokeWidth = 1.6 }) {
+  return (
+    <IconBase size={size} color={color} strokeWidth={strokeWidth}>
+      <Rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <Path d="M3.5 10h17" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M8 3v4M16 3v4" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconHome({ size = 20, color = "currentColor", strokeWidth = 1.6 }) {
+  return (
+    <IconBase size={size} color={color} strokeWidth={strokeWidth}>
+      <Path d="M3.5 11.5L12 4l8.5 7.5" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5.5 10v9.5h13V10" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconLibrary({ size = 20, color = "currentColor", strokeWidth = 1.6 }) {
+  return (
+    <IconBase size={size} color={color} strokeWidth={strokeWidth}>
+      <Rect x="4" y="4" width="5" height="16" rx="1" />
+      <Rect x="11" y="4" width="5" height="16" rx="1" />
+      <Path d="M18.5 5.5l3 .9-3.5 13-3-.9z" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconUser({ size = 18, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Circle cx="12" cy="8.5" r="3.5" />
+      <Path d="M5 20c1-4 4.5-5 7-5s6 1 7 5" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconArrow({ size = 17, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Path d="M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconCheck({ size = 13, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconLock({ size = 13, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Rect x="4.5" y="10.5" width="15" height="9" rx="2" />
+      <Path d="M8 10.5V8a4 4 0 018 0v2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconBolt({ size = 13, color = "currentColor" }) {
+  return (
+    <IconBase size={size} color={color}>
+      <Path d="M13 3L5 14h6l-1 7 8-11h-6z" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function IconFile({ size = 16, color = "currentColor", strokeWidth = 1.7 }) {
+  return (
+    <IconBase size={size} color={color} strokeWidth={strokeWidth}>
+      <Path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M14 3v5h5" strokeLinecap="round" strokeLinejoin="round" />
+    </IconBase>
+  );
+}
+
+function SecondaryActionCard({
+  icon,
+  label,
+  hint,
+  onPress,
+}: {
+  icon: ReactNode;
+  label: string;
+  hint: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.homeSecondaryAction}>
+      <View style={styles.homeSecondaryIconTile}>{icon}</View>
+      <View style={styles.homeSecondaryText}>
+        <Text style={styles.homeSecondaryLabel}>{label}</Text>
+        <Text style={styles.homeSecondaryHint}>{hint}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function RecentRow({
+  course,
+  title,
+  meta,
+  status,
+}: {
+  course: string;
+  title: string;
+  meta: string;
+  status: "exported" | "review";
+}) {
+  const isExported = status === "exported";
+  return (
+    <View style={styles.homeRecentRow}>
+      <View style={styles.homeRecentFileTile}>
+        <IconFile size={16} color={redesignColors.paper} />
+      </View>
+      <View style={styles.homeRecentBody}>
+        <View style={styles.homeRecentHeading}>
+          <Text style={styles.homeRecentCourse}>{course}</Text>
+          <Text style={styles.homeRecentTitle} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
+        <Text style={styles.homeRecentMeta}>{meta}</Text>
+      </View>
+      <View
+        style={[
+          styles.homeRecentBadge,
+          isExported ? styles.homeRecentBadgeExported : styles.homeRecentBadgeReview,
+        ]}
+      >
+        <Text
+          style={[
+            styles.homeRecentBadgeText,
+            isExported
+              ? styles.homeRecentBadgeTextExported
+              : styles.homeRecentBadgeTextReview,
+          ]}
+        >
+          {isExported ? "Synced" : "Review"}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function NavIcon({ tab, active }: { tab: NavTab; active: boolean }) {
   const color = active ? palette.forest : palette.textSoft;
 
@@ -316,10 +555,33 @@ function NavIcon({ tab, active }: { tab: NavTab; active: boolean }) {
   );
 }
 
+function navTabLabel(tab: NavTab) {
+  if (tab === "home") {
+    return "Home";
+  }
+
+  if (tab === "premium") {
+    return "Premium";
+  }
+
+  if (tab === "help") {
+    return "Help";
+  }
+
+  return "Contact";
+}
+
 function AppContent() {
   const [fontsLoaded] = useFonts({
-    Alice: require("./Alice/Alice-Regular.ttf"),
+    FrauncesRegular: require("./node_modules/@expo-google-fonts/fraunces/400Regular/Fraunces_400Regular.ttf"),
+    FrauncesItalic: require("./node_modules/@expo-google-fonts/fraunces/400Regular_Italic/Fraunces_400Regular_Italic.ttf"),
+    InterRegular: require("./node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf"),
+    InterMedium: require("./node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf"),
+    InterSemiBold: require("./node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf"),
+    InterBold: require("./node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf"),
   });
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [loadingOpacity] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
@@ -450,7 +712,21 @@ function AppContent() {
         ? "Connect Notion before exporting."
         : selectedTarget === "Notion" && !notionReady
           ? "Link a Notion database before exporting."
-          : null;
+        : null;
+  const recentRows = importedFile
+    ? [
+        {
+          course: importedFile.typeLabel,
+          title: importedFile.name.replace(/\.[^/.]+$/, ""),
+          meta: `${parsedItems.length} event${parsedItems.length === 1 ? "" : "s"} · ${
+            parseMode === "live" ? "synced just now" : "needs review"
+          }`,
+          status: (parseMode === "live" ? "exported" : "review") as
+            | "exported"
+            | "review",
+        },
+      ]
+    : [];
 
   const keyForItem = (item: ParsedItem) => `${item.title}__${item.date}__${item.type}`;
 
@@ -565,7 +841,14 @@ function AppContent() {
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ["application/pdf", "image/jpeg", "image/heic", "image/*"],
+        type: [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/msword",
+          "image/jpeg",
+          "image/heic",
+          "image/*",
+        ],
         copyToCacheDirectory: true,
         multiple: false,
       });
@@ -592,8 +875,24 @@ function AppContent() {
           Alert.alert("Schedule", "Could not create the schedule.");
         } finally {
           setIsParsing(false);
-        }
-      }
+  }
+}
+
+function navTabLabel(tab: NavTab) {
+  if (tab === "home") {
+    return "Home";
+  }
+
+  if (tab === "premium") {
+    return "Premium";
+  }
+
+  if (tab === "help") {
+    return "Help";
+  }
+
+  return "Contact";
+}
     } catch {
       Alert.alert("Import", "Please try again.");
     } finally {
@@ -777,46 +1076,121 @@ function AppContent() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={[styles.safeArea, activeTab === "home" && styles.homeScreenBackground]}
+      >
         <StatusBar style="dark" />
-        <View style={styles.appFrame}>
+        <View style={[styles.appFrame, activeTab === "home" && styles.homeScreenBackground]}>
           <ScrollView
-            contentContainerStyle={styles.scrollContent}
+            style={activeTab === "home" ? styles.homeScreenBackground : undefined}
+            contentContainerStyle={[
+              styles.scrollContent,
+              activeTab === "home" && styles.scrollContentHome,
+              isTablet && activeTab !== "home" && styles.scrollContentTablet,
+            ]}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.heroGlowOne} />
-            <View style={styles.heroGlowTwo} />
-
             {activeTab === "home" ? (
-              <View style={styles.pageColumn}>
-                <Text style={styles.heroTitle}>Syllabus to Calendar</Text>
-                <Text style={styles.heroBody}>Upload. Review. Export.</Text>
-                <View style={styles.homePanel}>
-                <View style={styles.heroCard}>
-                  <View style={styles.actionList}>
-                    <Pressable onPress={handlePickDocument} style={styles.actionListRow}>
-                      <Text style={styles.actionListLabel}>
-                        {isImporting ? "Loading..." : "Choose file"}
-                      </Text>
+              <View
+                style={[
+                  styles.pageColumn,
+                  styles.pageColumnHome,
+                  isTablet && activeTab !== "home" && styles.pageColumnTablet,
+                ]}
+              >
+                <View style={styles.homeGradient}>
+                  <View style={[styles.homeTopBar, isTablet && styles.homeTopBarTablet]}>
+                    <Pressable style={styles.homeTopIconButton}>
+                      <IconUser size={18} color={redesignColors.forest} />
                     </Pressable>
+                  </View>
 
-                    <Pressable onPress={handlePickPhoto} style={styles.actionListRow}>
-                      <Text style={styles.actionListLabel}>Choose photo</Text>
-                    </Pressable>
+                  <View style={[styles.homeHeroBlock, isTablet && styles.homeHeroBlockTablet]}>
+                    <View style={styles.homeStatusPill}>
+                      <View style={styles.homeStatusDotHalo}>
+                        <View style={styles.homeStatusDot} />
+                      </View>
+                      <Text style={styles.homeStatusText}>FALL '26 READY</Text>
+                    </View>
 
-                    <Pressable onPress={() => void handleUseExample()} style={styles.actionListRow}>
-                      <Text style={styles.actionListLabel}>
-                        {isParsing && importedFile?.uri === "demo://sample-syllabus"
-                          ? "Loading..."
-                          : "Load example schedule"}
-                      </Text>
-                    </Pressable>
+                    <Text style={[styles.homeHeadline, isTablet && styles.homeHeadlineTablet]}>
+                      <Text style={styles.homeHeadlineInk}>Your syllabus,{"\n"}</Text>
+                      <Text style={styles.homeHeadlineAccent}>on your calendar.</Text>
+                    </Text>
+
+                    <Text style={[styles.homeSubhead, isTablet && styles.homeSubheadTablet]}>
+                      Drop in a PDF or photo. We&apos;ll find every due date, exam, and
+                      reading — review, then send to your calendar.
+                    </Text>
+                  </View>
+
+                  <View style={[styles.homeUploadWrap, isTablet && styles.homeUploadWrapTablet]}>
+                    <View style={styles.homeUploadCard}>
+                      <Pressable onPress={handlePickDocument} style={styles.homeDropZone}>
+                        <View style={styles.homeDropZoneStripes} />
+                        <View style={styles.homeUploadIconTile}>
+                          <IconUpload size={24} color={redesignColors.paper} />
+                        </View>
+                        <View style={styles.homeUploadTextBlock}>
+                          <Text style={styles.homeUploadTitle}>Upload syllabus</Text>
+                          <Text style={styles.homeUploadCaption}>
+                            PDF, DOCX, or photo · up to 20 MB
+                          </Text>
+                        </View>
+                        <View style={styles.homeArrowChip}>
+                          <IconArrow size={17} color={redesignColors.forest} />
+                        </View>
+                      </Pressable>
+
+                      <View style={styles.homeSecondaryGrid}>
+                        <SecondaryActionCard
+                          icon={<IconCamera size={18} color={redesignColors.forest} />}
+                          label="Take photo"
+                          hint="Snap a printed page"
+                          onPress={handlePickPhoto}
+                        />
+                        <SecondaryActionCard
+                          icon={<IconSparkleLine size={18} color={redesignColors.forest} />}
+                          label="Try sample"
+                          hint="See how it works"
+                          onPress={() => void handleUseExample()}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={[styles.homeRecentSection, isTablet && styles.homeRecentSectionTablet]}>
+                    <View style={styles.homeRecentHeader}>
+                      <Text style={styles.homeRecentEyebrow}>RECENT</Text>
+                      <Pressable>
+                        <Text style={styles.homeRecentSeeAll}>See all</Text>
+                      </Pressable>
+                    </View>
+
+                    {recentRows.length ? (
+                      recentRows.map((row) => (
+                        <View key={`${row.course}-${row.title}`} style={styles.homeRecentStack}>
+                          <RecentRow
+                            course={row.course}
+                            title={row.title}
+                            meta={row.meta}
+                            status={row.status}
+                          />
+                        </View>
+                      ))
+                    ) : (
+                      <View style={styles.homeEmptyRecentRow}>
+                        <Text style={styles.homeEmptyRecentText}>
+                          No syllabi yet — upload your first one above
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {(importedFile || isImporting || isParsing) ? (
                     <Animated.Text
                       style={[
-                        styles.fileNameText,
+                        styles.homeLoadingText,
                         (isImporting || isParsing) && { opacity: loadingOpacity },
                       ]}
                     >
@@ -825,16 +1199,16 @@ function AppContent() {
                   ) : null}
 
                   {parseMode === "live" ? (
-                    <View style={styles.statusBanner}>
-                      <Text style={styles.statusBannerText}>
+                    <View style={styles.homeBanner}>
+                      <Text style={styles.homeBannerText}>
                         Live parse ready. Review dates before exporting.
                       </Text>
                     </View>
                   ) : null}
 
                   {parseMode === "demo" ? (
-                    <View style={[styles.statusBanner, styles.statusBannerWarning]}>
-                      <Text style={styles.statusBannerText}>
+                    <View style={[styles.homeBanner, styles.homeBannerWarning]}>
+                      <Text style={styles.homeBannerText}>
                         Showing fallback example-style results. Check each item before export.
                       </Text>
                     </View>
@@ -848,7 +1222,7 @@ function AppContent() {
                     <Text style={styles.infoTitle}>Review</Text>
 
                     <View style={styles.reviewControlStrip}>
-                      <View style={styles.centeredControlRow}>
+                      <View style={styles.segmentedControl}>
                         {roadmapTabs.map((tab) => {
                           const isActive = roadmapTab === tab;
 
@@ -858,9 +1232,16 @@ function AppContent() {
                               onPress={() => {
                                 setRoadmapTab(tab);
                               }}
+                              style={[
+                                styles.segmentedButton,
+                                isActive && styles.segmentedButtonActive,
+                              ]}
                             >
                               <Text
-                                style={[styles.navText, isActive && styles.navTextActive]}
+                                style={[
+                                  styles.segmentedButtonText,
+                                  isActive && styles.segmentedButtonTextActive,
+                                ]}
                               >
                                 {tab}
                               </Text>
@@ -868,88 +1249,6 @@ function AppContent() {
                           );
                         })}
                       </View>
-
-                      <View style={styles.centeredControlRow}>
-                        {exportTargets.map((target) => {
-                          const isActive = selectedTarget === target;
-
-                          return (
-                            <Pressable
-                              key={target}
-                              onPress={() => setSelectedTarget(target)}
-                            >
-                              <Text
-                                style={[styles.navText, isActive && styles.navTextActive]}
-                              >
-                                {target === "Google Calendar"
-                                  ? "Google"
-                                  : target === "Apple Calendar"
-                                    ? "Apple"
-                                    : "Notion"}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    <View style={styles.reviewSection}>
-                      <Text style={styles.previewTitle}>{selectedTarget}</Text>
-
-                      {filteredItems.length ? (
-                        selectedTarget === "Apple Calendar" ? (
-                          <View style={styles.previewList}>
-                            {filteredItems.map((item, index) => (
-                              <View key={`${item.title}-${item.date}-${index}`} style={styles.previewListRow}>
-                                <View style={styles.previewTextBlock}>
-                                  <Text style={styles.previewPrimaryText}>{item.title}</Text>
-                                  <Text style={styles.previewSecondaryText}>
-                                    {labelForItemType(item.type)} • {formatDisplayWeekday(item.date)} {formatDisplayDate(item.date)}
-                                  </Text>
-                                </View>
-                              </View>
-                            ))}
-                          </View>
-                        ) : selectedTarget === "Google Calendar" ? (
-                          <View style={styles.calendarPreview}>
-                            {groupedPreviewItems.map(([date, items]) => (
-                              <View key={date} style={styles.calendarDayRow}>
-                                <Text style={styles.calendarDate}>{formatDisplayDate(date)}</Text>
-                                <View style={styles.calendarItems}>
-                                  {items.map((item, index) => (
-                                    <Text
-                                      key={`${item.title}-${index}`}
-                                      style={styles.calendarItemText}
-                                    >
-                                      {item.title}
-                                    </Text>
-                                  ))}
-                                </View>
-                              </View>
-                            ))}
-                          </View>
-                        ) : (
-                          <View style={styles.notionPreview}>
-                            <View style={styles.notionHeaderRow}>
-                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Name</Text>
-                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Date</Text>
-                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Type</Text>
-                            </View>
-                            {filteredItems.map((item, index) => (
-                              <View
-                                key={`${item.title}-${item.date}-${index}`}
-                                style={styles.notionRow}
-                              >
-                                <Text style={styles.notionCell}>{item.title}</Text>
-                                <Text style={styles.notionCell}>{formatDisplayDate(item.date)}</Text>
-                                <Text style={styles.notionCell}>{labelForItemType(item.type)}</Text>
-                              </View>
-                            ))}
-                          </View>
-                        )
-                      ) : (
-                        <Text style={styles.emptyStateText}>No items in this section.</Text>
-                      )}
                     </View>
 
                     {filteredItems.length ? (
@@ -1071,6 +1370,95 @@ function AppContent() {
                         </View>
                       </View>
                     )}
+
+                    <View style={styles.reviewSection}>
+                      <View style={styles.segmentedControl}>
+                        {exportTargets.map((target) => {
+                          const isActive = selectedTarget === target;
+
+                          return (
+                            <Pressable
+                              key={target}
+                              onPress={() => setSelectedTarget(target)}
+                              style={[
+                                styles.segmentedButton,
+                                isActive && styles.segmentedButtonActive,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.segmentedButtonText,
+                                  isActive && styles.segmentedButtonTextActive,
+                                ]}
+                              >
+                                {target === "Google Calendar"
+                                  ? "Google"
+                                  : target === "Apple Calendar"
+                                    ? "Apple"
+                                    : "Notion"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={styles.previewTitle}>{selectedTarget}</Text>
+
+                      {filteredItems.length ? (
+                        selectedTarget === "Apple Calendar" ? (
+                          <View style={styles.previewList}>
+                            {filteredItems.map((item, index) => (
+                              <View key={`${item.title}-${item.date}-${index}`} style={styles.previewListRow}>
+                                <View style={styles.previewTextBlock}>
+                                  <Text style={styles.previewPrimaryText}>{item.title}</Text>
+                                  <Text style={styles.previewSecondaryText}>
+                                    {labelForItemType(item.type)} • {formatDisplayWeekday(item.date)} {formatDisplayDate(item.date)}
+                                  </Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        ) : selectedTarget === "Google Calendar" ? (
+                          <View style={styles.calendarPreview}>
+                            {groupedPreviewItems.map(([date, items]) => (
+                              <View key={date} style={styles.calendarDayRow}>
+                                <Text style={styles.calendarDate}>{formatDisplayDate(date)}</Text>
+                                <View style={styles.calendarItems}>
+                                  {items.map((item, index) => (
+                                    <Text
+                                      key={`${item.title}-${index}`}
+                                      style={styles.calendarItemText}
+                                    >
+                                      {item.title}
+                                    </Text>
+                                  ))}
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <View style={styles.notionPreview}>
+                            <View style={styles.notionHeaderRow}>
+                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Name</Text>
+                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Date</Text>
+                              <Text style={[styles.notionCell, styles.notionHeaderCell]}>Type</Text>
+                            </View>
+                            {filteredItems.map((item, index) => (
+                              <View
+                                key={`${item.title}-${item.date}-${index}`}
+                                style={styles.notionRow}
+                              >
+                                <Text style={styles.notionCell}>{item.title}</Text>
+                                <Text style={styles.notionCell}>{formatDisplayDate(item.date)}</Text>
+                                <Text style={styles.notionCell}>{labelForItemType(item.type)}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )
+                      ) : (
+                        <Text style={styles.emptyStateText}>No items in this section.</Text>
+                      )}
+                    </View>
                   </View>
                   </>
                 ) : null}
@@ -1277,16 +1665,21 @@ function AppContent() {
                   </View>
                   </>
                 ) : null}
-                </View>
               </View>
             ) : null}
 
             {activeTab === "premium" ? (
-              <View style={styles.pageColumn}>
-                <Text style={styles.heroTitle}>Premium</Text>
-                <View style={styles.contentCard}>
-                  <Text style={styles.infoTitle}>Unlimited syllabi</Text>
-                  <Text style={styles.cardBody}>$3.99 per month.</Text>
+              <View style={[styles.pageColumn, styles.secondaryPageColumn]}>
+                <View style={styles.secondaryPageHeader}>
+                  <Text style={styles.secondaryPageEyebrow}>PREMIUM</Text>
+                  <Text style={styles.secondaryPageTitle}>Export everywhere, faster.</Text>
+                  <Text style={styles.secondaryPageBody}>
+                    Unlock multi-destination exports, premium parsing workflows, and
+                    optional academic break handling in one subscription.
+                  </Text>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>What&apos;s included</Text>
                   <View style={styles.benefitList}>
                     <Text style={styles.benefitText}>Unlimited syllabus uploads</Text>
                     <Text style={styles.benefitText}>Export to multiple destinations</Text>
@@ -1295,6 +1688,7 @@ function AppContent() {
                     <Text style={styles.benefitText}>Automatic breaks and holiday detection</Text>
                     <Text style={styles.benefitText}>Future attendance tools</Text>
                   </View>
+                  <Text style={styles.secondaryInlineNote}>$3.99 per month.</Text>
                   <Pressable
                     onPress={() => void handleSubscribe()}
                     style={({ pressed }) => [
@@ -1338,34 +1732,98 @@ function AppContent() {
             ) : null}
 
             {activeTab === "help" ? (
-              <View style={styles.pageColumn}>
-                <Text style={styles.heroTitle}>Help</Text>
-                <View style={styles.contentCard}>
-                  <Text style={styles.infoTitle}>Instructions</Text>
+              <View style={[styles.pageColumn, styles.secondaryPageColumn]}>
+                <View style={styles.secondaryPageHeader}>
+                  <Text style={styles.secondaryPageEyebrow}>CALENDAR WORKSPACE</Text>
+                  <Text style={styles.secondaryPageTitle}>Review before you export.</Text>
+                  <Text style={styles.secondaryPageBody}>
+                    See what was detected, choose a destination, and clean up any dates
+                    before sending everything out.
+                  </Text>
+                </View>
+                <View style={styles.secondaryStatsRow}>
+                  <View style={styles.secondaryStatCard}>
+                    <Text style={styles.secondaryStatValue}>{parsedItems.length}</Text>
+                    <Text style={styles.secondaryStatLabel}>events parsed</Text>
+                  </View>
+                  <View style={styles.secondaryStatCard}>
+                    <Text style={styles.secondaryStatValue}>{filteredItems.length}</Text>
+                    <Text style={styles.secondaryStatLabel}>in current filter</Text>
+                  </View>
+                  <View style={styles.secondaryStatCard}>
+                    <Text style={styles.secondaryStatValue}>
+                      {selectedTarget === "Google Calendar"
+                        ? "Google"
+                        : selectedTarget === "Apple Calendar"
+                          ? "Apple"
+                          : "Notion"}
+                    </Text>
+                    <Text style={styles.secondaryStatLabel}>selected export</Text>
+                  </View>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>Current status</Text>
                   <View style={styles.helpList}>
-                    <Text style={styles.helpText}>1. Choose a file, photo, or example syllabus.</Text>
-                    <Text style={styles.helpText}>2. The app reads it automatically and builds your schedule.</Text>
-                    <Text style={styles.helpText}>3. Switch between all items, assignments, exams, and labs.</Text>
-                    <Text style={styles.helpText}>4. Tap any item to edit details or use `+` to add something missing.</Text>
-                    <Text style={styles.helpText}>5. Choose Google Calendar, Apple Calendar, or Notion to preview the export.</Text>
-                    <Text style={styles.helpText}>6. Connect Google or Notion before exporting there.</Text>
-                    <Text style={styles.helpText}>7. For Notion, paste the database link you want to export into.</Text>
-                    <Text style={styles.helpText}>8. Premium adds multi-destination export and optional breaks and holidays.</Text>
+                    <Text style={styles.helpText}>
+                      {parsedItems.length
+                        ? "Your schedule is loaded. Review dates and titles before export."
+                        : "No schedule loaded yet. Upload a syllabus from Home or use the scan action first."}
+                    </Text>
+                    <Text style={styles.helpText}>
+                      Switch between assignments, exams, and labs before exporting.
+                    </Text>
+                    <Text style={styles.helpText}>
+                      Connect Google or Notion only if you plan to export there.
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setActiveTab("home")}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      styles.secondaryPageButton,
+                      pressed && styles.secondaryButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Back to Home</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>How export works</Text>
+                  <View style={styles.helpList}>
+                    <Text style={styles.helpText}>1. Upload a file, photo, or sample syllabus.</Text>
+                    <Text style={styles.helpText}>2. Review every detected event and edit anything missing.</Text>
+                    <Text style={styles.helpText}>3. Pick Apple Calendar, Google Calendar, or Notion.</Text>
+                    <Text style={styles.helpText}>4. Export only when the dates look right.</Text>
                   </View>
                 </View>
               </View>
             ) : null}
 
             {activeTab === "feedback" ? (
-              <View style={styles.pageColumn}>
-                <Text style={styles.heroTitle}>Contact</Text>
-                <View style={styles.contentCard}>
-                  <Text style={styles.infoTitle}>Feedback</Text>
+              <View style={[styles.pageColumn, styles.secondaryPageColumn]}>
+                <View style={styles.secondaryPageHeader}>
+                  <Text style={styles.secondaryPageEyebrow}>LIBRARY</Text>
+                  <Text style={styles.secondaryPageTitle}>Notes, support, and feedback.</Text>
+                  <Text style={styles.secondaryPageBody}>
+                    Keep the guidance close by and send product feedback without leaving
+                    the app.
+                  </Text>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>Quick notes</Text>
+                  <View style={styles.helpList}>
+                    <Text style={styles.helpText}>Use clear PDFs or well-lit photos for the best parsing.</Text>
+                    <Text style={styles.helpText}>Word documents are supported, but always verify the dates.</Text>
+                    <Text style={styles.helpText}>If something looks wrong, edit it before export.</Text>
+                  </View>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>Send feedback</Text>
                   <TextInput
                     value={feedbackText}
                     onChangeText={setFeedbackText}
                     placeholder="Tell us what to improve"
-                    placeholderTextColor={palette.textSoft}
+                    placeholderTextColor={redesignColors.inkMute}
                     style={[styles.editorInput, styles.feedbackInput]}
                     multiline
                   />
@@ -1385,22 +1843,97 @@ function AppContent() {
             ) : null}
           </ScrollView>
 
-          <View style={styles.navArea}>
-            <View style={styles.navShell}>
-              {navTabs.map((tab) => {
-                const active = activeTab === tab;
-
-                return (
-                  <Pressable
-                    key={tab}
-                    onPress={() => setActiveTab(tab)}
-                    style={styles.navButton}
-                  >
-                    <NavIcon tab={tab} active={active} />
-                  </Pressable>
-                );
-              })}
+          {activeTab === "home" ? (
+            <View style={styles.homeTrustStrip}>
+              <View style={styles.homeTrustItem}>
+                <IconLock size={13} color={redesignColors.inkMute} />
+                <Text style={styles.homeTrustText}>On-device</Text>
+              </View>
+              <View style={styles.homeTrustDivider} />
+              <View style={styles.homeTrustItem}>
+                <IconBolt size={13} color={redesignColors.inkMute} />
+                <Text style={styles.homeTrustText}>~7s avg</Text>
+              </View>
+              <View style={styles.homeTrustDivider} />
+              <View style={styles.homeTrustItem}>
+                <IconCheck size={13} color={redesignColors.inkMute} />
+                <Text style={styles.homeTrustText}>No account</Text>
+              </View>
             </View>
+          ) : null}
+
+          <View style={styles.navArea}>
+            <BlurView intensity={18} tint="light" style={[styles.navShell, isTablet && styles.navShellTablet]}>
+              <Pressable
+                onPress={() => setActiveTab("home")}
+                style={[
+                  styles.navButton,
+                  activeTab === "home" && styles.navButtonActive,
+                  isTablet && styles.navButtonTablet,
+                ]}
+              >
+                <IconHome
+                  size={20}
+                  color={activeTab === "home" ? redesignColors.paper : redesignColors.inkSoft}
+                  strokeWidth={activeTab === "home" ? 1.8 : 1.6}
+                />
+                <Text
+                  style={[
+                    styles.navButtonLabel,
+                    activeTab === "home" && styles.navButtonLabelActive,
+                  ]}
+                >
+                  Home
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handlePickPhoto}
+                style={[styles.navButton, isTablet && styles.navButtonTablet]}
+              >
+                <IconSparkleLine size={20} color={redesignColors.inkSoft} />
+                <Text style={styles.navButtonLabel}>Scan</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setActiveTab("help")}
+                style={[styles.navButton, activeTab === "help" && styles.navButtonActive, isTablet && styles.navButtonTablet]}
+              >
+                <IconCalendar
+                  size={20}
+                  color={activeTab === "help" ? redesignColors.paper : redesignColors.inkSoft}
+                  strokeWidth={activeTab === "help" ? 1.8 : 1.6}
+                />
+                <Text
+                  style={[
+                    styles.navButtonLabel,
+                    activeTab === "help" && styles.navButtonLabelActive,
+                  ]}
+                >
+                  Calendar
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setActiveTab("feedback")}
+                style={[
+                  styles.navButton,
+                  activeTab === "feedback" && styles.navButtonActive,
+                  isTablet && styles.navButtonTablet,
+                ]}
+              >
+                <IconLibrary
+                  size={20}
+                  color={activeTab === "feedback" ? redesignColors.paper : redesignColors.inkSoft}
+                  strokeWidth={activeTab === "feedback" ? 1.8 : 1.6}
+                />
+                <Text
+                  style={[
+                    styles.navButtonLabel,
+                    activeTab === "feedback" && styles.navButtonLabelActive,
+                  ]}
+                >
+                  Library
+                </Text>
+              </Pressable>
+            </BlurView>
           </View>
         </View>
       </SafeAreaView>
@@ -1429,7 +1962,7 @@ const styles = StyleSheet.create({
   },
   landingTitle: {
     color: palette.text,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     fontSize: 36,
     lineHeight: 40,
     textAlign: "center",
@@ -1438,55 +1971,545 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.background,
   },
+  homeScreenBackground: {
+    backgroundColor: redesignColors.paper,
+  },
   appFrame: {
     flex: 1,
     backgroundColor: palette.background,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 28,
+    paddingTop: 24,
+    paddingBottom: 48,
     alignItems: "stretch",
+    justifyContent: "flex-start",
+  },
+  scrollContentHome: {
+    justifyContent: "flex-start",
+    paddingTop: 0,
+    paddingHorizontal: 0,
+    paddingBottom: 24,
+  },
+  scrollContentTablet: {
+    justifyContent: "flex-start",
+    paddingTop: 72,
+    paddingBottom: 72,
+    paddingHorizontal: 32,
   },
   pageColumn: {
     width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
     alignItems: "stretch",
+    justifyContent: "center",
+    gap: 14,
+  },
+  pageColumnHome: {
+    maxWidth: "100%",
+    gap: 0,
+  },
+  pageColumnTablet: {
+    maxWidth: 980,
+    gap: 18,
+  },
+  secondaryPageColumn: {
+    maxWidth: 760,
+    paddingHorizontal: 14,
+    paddingTop: 22,
+    paddingBottom: 120,
+    gap: 16,
+  },
+  secondaryPageHeader: {
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  secondaryPageEyebrow: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterSemiBold",
+    fontSize: 11,
+    letterSpacing: 1.1,
+  },
+  secondaryPageTitle: {
+    color: redesignColors.forestDeep,
+    fontFamily: "FrauncesRegular",
+    fontSize: 36,
+    lineHeight: 38,
+    letterSpacing: -0.6,
+  },
+  secondaryPageBody: {
+    maxWidth: 540,
+    color: redesignColors.inkSoft,
+    fontFamily: "InterRegular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  secondaryStatsRow: {
+    flexDirection: "row",
     gap: 10,
+  },
+  secondaryStatCard: {
+    flex: 1,
+    minHeight: 88,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    backgroundColor: "rgba(255,255,255,0.42)",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    justifyContent: "space-between",
+  },
+  secondaryStatValue: {
+    color: redesignColors.forestDeep,
+    fontFamily: "FrauncesRegular",
+    fontSize: 24,
+    lineHeight: 26,
+  },
+  secondaryStatLabel: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterMedium",
+    fontSize: 11.5,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  secondaryPageCard: {
+    width: "100%",
+    backgroundColor: redesignColors.card,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 14,
+    shadowColor: redesignColors.forestShadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+  },
+  secondarySectionTitle: {
+    color: redesignColors.forestDeep,
+    fontFamily: "FrauncesRegular",
+    fontSize: 24,
+    lineHeight: 27,
+  },
+  secondaryInlineNote: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 13,
+    textAlign: "left",
+  },
+  secondaryPageButton: {
+    alignSelf: "flex-start",
+    minWidth: 148,
+  },
+  homeGradient: {
+    width: "100%",
+    minHeight: "100%",
+    backgroundColor: redesignColors.paper,
+    paddingBottom: 32,
+  },
+  homeTopBar: {
+    paddingTop: 58,
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  homeTopBarTablet: {
+    paddingTop: 20,
+    paddingHorizontal: 56,
+  },
+  homeTopIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeHeroBlock: {
+    paddingTop: 24,
+    paddingHorizontal: 22,
+    alignItems: "flex-start",
+  },
+  homeHeroBlockTablet: {
+    paddingTop: 44,
+    paddingHorizontal: 56,
+    maxWidth: 720,
+    alignSelf: "center",
+    width: "100%",
+  },
+  homeStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(40,88,59,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(40,88,59,0.15)",
+  },
+  homeStatusDotHalo: {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(217,178,90,0.25)",
+  },
+  homeStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: redesignColors.gold,
+  },
+  homeStatusText: {
+    color: redesignColors.forest,
+    fontFamily: "InterSemiBold",
+    fontSize: 11,
+    letterSpacing: 0.66,
+  },
+  homeHeadline: {
+    marginTop: 14,
+    color: redesignColors.forestShadow,
+    fontFamily: "FrauncesRegular",
+    fontSize: 39,
+    lineHeight: 40,
+    letterSpacing: -0.9,
+  },
+  homeHeadlineTablet: {
+    fontSize: 72,
+    lineHeight: 74,
+  },
+  homeHeadlineInk: {
+    color: redesignColors.forestShadow,
+    fontFamily: "FrauncesRegular",
+  },
+  homeHeadlineAccent: {
+    color: redesignColors.forest,
+    fontFamily: "FrauncesItalic",
+  },
+  homeSubhead: {
+    marginTop: 10,
+    maxWidth: 320,
+    color: redesignColors.inkSoft,
+    fontFamily: "InterRegular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  homeSubheadTablet: {
+    maxWidth: 520,
+    fontSize: 18,
+    lineHeight: 28,
+  },
+  homeUploadWrap: {
+    paddingTop: 20,
+    paddingHorizontal: 22,
+  },
+  homeUploadWrapTablet: {
+    paddingTop: 32,
+    paddingHorizontal: 56,
+    maxWidth: 720,
+    alignSelf: "center",
+    width: "100%",
+  },
+  homeUploadCard: {
+    backgroundColor: redesignColors.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    padding: 16,
+    shadowColor: redesignColors.forestShadow,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  homeDropZone: {
+    minHeight: 96,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: redesignColors.hairline,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    overflow: "hidden",
+  },
+  homeDropZoneStripes: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(40,88,59,0.02)",
+  },
+  homeUploadIconTile: {
+    width: 52,
+    height: 52,
+    borderRadius: 13,
+    backgroundColor: redesignColors.forest,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeUploadTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  homeUploadTitle: {
+    color: redesignColors.ink,
+    fontFamily: "InterSemiBold",
+    fontSize: 15,
+  },
+  homeUploadCaption: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 12,
+  },
+  homeArrowChip: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(40,88,59,0.15)",
+    backgroundColor: "rgba(40,88,59,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeSecondaryGrid: {
+    marginTop: 10,
+    flexDirection: "row",
+    gap: 10,
+  },
+  homeSecondaryAction: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    backgroundColor: redesignColors.paper,
+  },
+  homeSecondaryIconTile: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(40,88,59,0.08)",
+  },
+  homeSecondaryText: {
+    flex: 1,
+  },
+  homeSecondaryLabel: {
+    color: redesignColors.ink,
+    fontFamily: "InterSemiBold",
+    fontSize: 13.5,
+  },
+  homeSecondaryHint: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 11,
+    marginTop: 1,
+  },
+  homeRecentSection: {
+    paddingTop: 20,
+    paddingHorizontal: 22,
+  },
+  homeRecentSectionTablet: {
+    paddingTop: 26,
+    paddingHorizontal: 56,
+    maxWidth: 720,
+    alignSelf: "center",
+    width: "100%",
+  },
+  homeRecentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  homeRecentEyebrow: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterSemiBold",
+    fontSize: 11,
+    letterSpacing: 1.1,
+  },
+  homeRecentSeeAll: {
+    color: redesignColors.forest,
+    fontFamily: "InterSemiBold",
+    fontSize: 12,
+  },
+  homeRecentStack: {
+    marginBottom: 8,
+  },
+  homeRecentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: redesignColors.hairlineSoft,
+    backgroundColor: "rgba(255,255,255,0.5)",
+  },
+  homeRecentFileTile: {
+    width: 38,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: redesignColors.forest,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  homeRecentBody: {
+    flex: 1,
+  },
+  homeRecentHeading: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 1,
+  },
+  homeRecentCourse: {
+    color: redesignColors.forest,
+    fontFamily: "InterBold",
+    fontSize: 11,
+    letterSpacing: 0.44,
+  },
+  homeRecentTitle: {
+    flex: 1,
+    color: redesignColors.ink,
+    fontFamily: "InterSemiBold",
+    fontSize: 13.5,
+  },
+  homeRecentMeta: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 11.5,
+  },
+  homeRecentBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  homeRecentBadgeExported: {
+    backgroundColor: "rgba(40,88,59,0.08)",
+    borderColor: "rgba(40,88,59,0.18)",
+  },
+  homeRecentBadgeReview: {
+    backgroundColor: "rgba(217,178,90,0.18)",
+    borderColor: "rgba(184,146,59,0.35)",
+  },
+  homeRecentBadgeText: {
+    fontFamily: "InterBold",
+    fontSize: 10.5,
+    letterSpacing: 0.63,
+    textTransform: "uppercase",
+  },
+  homeRecentBadgeTextExported: {
+    color: redesignColors.forest,
+  },
+  homeRecentBadgeTextReview: {
+    color: redesignColors.goldDeep,
+  },
+  homeEmptyRecentRow: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: redesignColors.hairlineSoft,
+    backgroundColor: "rgba(255,255,255,0.5)",
+    paddingHorizontal: 14,
+    paddingVertical: 15,
+  },
+  homeEmptyRecentText: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 12.5,
+  },
+  homeLoadingText: {
+    marginTop: 8,
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  homeBanner: {
+    marginTop: 10,
+    marginHorizontal: 22,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: redesignColors.hairline,
+    backgroundColor: redesignColors.card,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  homeBannerWarning: {
+    borderColor: "rgba(184,146,59,0.35)",
+    backgroundColor: "rgba(217,178,90,0.12)",
+  },
+  homeBannerText: {
+    color: redesignColors.ink,
+    fontFamily: "InterRegular",
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+  },
+  homeTrustStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 8,
+    flexWrap: "wrap",
+  },
+  homeTrustItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  homeTrustText: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 11.5,
+  },
+  homeTrustDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: redesignColors.hairline,
   },
   homePanel: {
     width: "100%",
     backgroundColor: palette.surface,
-    borderRadius: 24,
+    borderRadius: 30,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 14,
-    gap: 16,
+    padding: 18,
+    gap: 20,
   },
-  heroGlowOne: {
-    position: "absolute",
-    top: 8,
-    right: -20,
-    width: 180,
-    height: 180,
-    borderRadius: 180,
-    backgroundColor: "rgba(216, 196, 143, 0.16)",
-  },
-  heroGlowTwo: {
-    position: "absolute",
-    top: 120,
-    left: -40,
-    width: 220,
-    height: 220,
-    borderRadius: 220,
-    backgroundColor: "rgba(168, 184, 138, 0.12)",
+  homePanelTablet: {
+    borderRadius: 30,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    gap: 24,
+    maxWidth: 760,
+    alignSelf: "center",
   },
   heroTitle: {
-    marginTop: 8,
     color: palette.text,
     fontSize: 30,
     lineHeight: 34,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     textAlign: "center",
+  },
+  heroTitleTablet: {
+    fontSize: 42,
+    lineHeight: 46,
   },
   heroBody: {
     color: palette.textSoft,
@@ -1495,11 +2518,18 @@ const styles = StyleSheet.create({
     fontFamily: sansFont,
     textAlign: "center",
   },
+  heroBodyTablet: {
+    fontSize: 18,
+    lineHeight: 24,
+  },
   heroCard: {
     width: "100%",
     padding: 0,
-    gap: 8,
+    gap: 12,
     alignItems: "stretch",
+  },
+  heroCardTablet: {
+    gap: 12,
   },
   summaryStrip: {
     width: "100%",
@@ -1520,7 +2550,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: palette.text,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     fontSize: 23,
     lineHeight: 27,
     textAlign: "center",
@@ -1538,21 +2568,31 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "center",
   },
-  actionList: {
+  groupedListCard: {
     width: "100%",
-    gap: 0,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: "hidden",
   },
   actionListRow: {
     width: "100%",
-    paddingVertical: 11,
+    paddingVertical: 16,
     alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: palette.border,
   },
+  actionListRowTablet: {
+    paddingVertical: 18,
+  },
+  groupedListRowLast: {
+    borderBottomWidth: 0,
+  },
   actionListLabel: {
     color: palette.forest,
     fontFamily: sansFont,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
@@ -1568,15 +2608,15 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: palette.forest,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   secondaryButton: {
     backgroundColor: palette.surfaceSoft,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     borderWidth: 1,
     borderColor: palette.border,
   },
@@ -1599,12 +2639,14 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#F9F5EE",
     fontFamily: sansFont,
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: "600",
   },
   secondaryButtonText: {
     color: palette.text,
     fontFamily: sansFont,
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: "600",
   },
   ghostButtonText: {
     color: palette.forest,
@@ -1640,8 +2682,13 @@ const styles = StyleSheet.create({
   },
   contentCard: {
     width: "100%",
-    padding: 0,
-    gap: 8,
+    backgroundColor: palette.surface,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 14,
     alignItems: "stretch",
   },
   sectionLabel: {
@@ -1654,7 +2701,7 @@ const styles = StyleSheet.create({
   },
   infoTitle: {
     color: palette.text,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     fontSize: 21,
     lineHeight: 25,
     textAlign: "center",
@@ -1668,9 +2715,43 @@ const styles = StyleSheet.create({
   },
   reviewControlStrip: {
     width: "100%",
-    gap: 10,
+    gap: 14,
     paddingTop: 2,
     alignItems: "center",
+  },
+  segmentedControl: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+    padding: 6,
+    backgroundColor: palette.surfaceSoft,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  segmentedButton: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentedButtonActive: {
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  segmentedButtonText: {
+    color: palette.textSoft,
+    fontFamily: sansFont,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  segmentedButtonTextActive: {
+    color: palette.forest,
   },
   centeredControlRow: {
     width: "100%",
@@ -1711,9 +2792,9 @@ const styles = StyleSheet.create({
   },
   previewTitle: {
     color: palette.text,
-    fontFamily: "Alice",
-    fontSize: 18,
-    lineHeight: 21,
+    fontFamily: "FrauncesRegular",
+    fontSize: 22,
+    lineHeight: 26,
     textAlign: "center",
     alignSelf: "center",
   },
@@ -1723,10 +2804,12 @@ const styles = StyleSheet.create({
   },
   previewListRow: {
     width: "100%",
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    backgroundColor: palette.surfaceSoft,
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: 3,
   },
   previewRowHeader: {
@@ -1765,12 +2848,14 @@ const styles = StyleSheet.create({
   calendarDayRow: {
     width: "100%",
     flexDirection: "row",
-    gap: 10,
+    gap: 14,
     alignItems: "flex-start",
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    backgroundColor: palette.surfaceSoft,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   calendarDate: {
     minWidth: 48,
@@ -1829,7 +2914,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-    minHeight: 30,
+    minHeight: 34,
   },
   itemListHeaderText: {
     alignItems: "center",
@@ -1837,7 +2922,7 @@ const styles = StyleSheet.create({
   },
   itemListTitle: {
     color: palette.text,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     fontSize: 18,
     lineHeight: 21,
     textAlign: "center",
@@ -1845,14 +2930,14 @@ const styles = StyleSheet.create({
   addButton: {
     position: "absolute",
     right: 0,
-    width: 30,
-    height: 30,
-    borderRadius: 999,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.surfaceSoft,
+    backgroundColor: palette.surface,
   },
   addIcon: {
     width: 12,
@@ -1880,11 +2965,13 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     width: "100%",
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    backgroundColor: palette.surfaceSoft,
-    borderRadius: 14,
-    gap: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: palette.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 5,
   },
   itemRowActive: {
     borderWidth: 1,
@@ -1910,17 +2997,21 @@ const styles = StyleSheet.create({
   },
   editorCard: {
     width: "100%",
-    backgroundColor: palette.surfaceSoft,
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: palette.surface,
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: 8,
     alignItems: "center",
   },
   inlineEditorCard: {
     width: "100%",
-    backgroundColor: palette.surfaceSoft,
-    borderRadius: 16,
-    padding: 10,
+    backgroundColor: palette.surface,
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: 8,
     alignItems: "stretch",
   },
@@ -1932,19 +3023,19 @@ const styles = StyleSheet.create({
   },
   editorTitle: {
     color: palette.text,
-    fontFamily: "Alice",
+    fontFamily: "FrauncesRegular",
     fontSize: 18,
     lineHeight: 21,
     textAlign: "center",
   },
   editorInput: {
     width: "100%",
-    backgroundColor: palette.surface,
-    borderRadius: 12,
+    backgroundColor: palette.background,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: palette.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: palette.text,
     fontFamily: sansFont,
     fontSize: 14,
@@ -1958,15 +3049,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   exportButton: {
-    alignSelf: "center",
-    marginTop: 4,
+    alignSelf: "stretch",
+    marginTop: 2,
   },
   exportSummaryCard: {
     width: "100%",
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: palette.surfaceSoft,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
     gap: 4,
@@ -2006,14 +3097,19 @@ const styles = StyleSheet.create({
   },
   connectionList: {
     width: "100%",
-    gap: 2,
+    backgroundColor: palette.surfaceSoft,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: "hidden",
   },
   connectionRow: {
     width: "100%",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: palette.border,
   },
@@ -2045,61 +3141,88 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(226, 215, 195, 0.8)",
   },
   benefitList: {
-    gap: 8,
-    alignItems: "center",
+    gap: 10,
+    alignItems: "stretch",
   },
   benefitText: {
-    color: palette.text,
-    fontFamily: sansFont,
+    color: redesignColors.ink,
+    fontFamily: "InterRegular",
     fontSize: 14,
-    textAlign: "center",
+    lineHeight: 20,
+    textAlign: "left",
   },
   helpList: {
-    gap: 8,
-    alignItems: "center",
+    gap: 12,
+    alignItems: "stretch",
   },
   helpText: {
-    color: palette.text,
-    fontFamily: sansFont,
+    color: redesignColors.ink,
+    fontFamily: "InterRegular",
     fontSize: 14,
-    textAlign: "center",
+    lineHeight: 21,
+    textAlign: "left",
   },
   feedbackInput: {
     minHeight: 140,
     textAlignVertical: "top",
   },
   navShell: {
-    marginHorizontal: 12,
-    marginBottom: 16,
-    backgroundColor: "rgba(251, 247, 240, 0.96)",
-    borderRadius: 999,
+    marginHorizontal: 16,
+    marginBottom: 22,
+    overflow: "hidden",
+    backgroundColor: "rgba(245,239,220,0.85)",
     borderWidth: 1,
-    borderColor: palette.border,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
+    borderColor: redesignColors.hairline,
+    borderRadius: 22,
+    padding: 6,
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    gap: 4,
+  },
+  navShellTablet: {
+    maxWidth: 480,
+    alignSelf: "center",
+    width: "100%",
   },
   navArea: {
-    backgroundColor: palette.background,
-    paddingTop: 4,
+    backgroundColor: "transparent",
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingBottom: 6,
   },
   navButton: {
-    width: 48,
-    height: 34,
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    gap: 2,
+    paddingVertical: 9,
+  },
+  navButtonTablet: {
+    minHeight: 58,
+  },
+  navButtonActive: {
+    backgroundColor: redesignColors.forest,
+  },
+  navButtonLabel: {
+    color: redesignColors.inkSoft,
+    fontFamily: "InterMedium",
+    fontSize: 10.5,
+  },
+  navButtonLabelActive: {
+    color: redesignColors.paper,
   },
   iconBox: {
-    width: 24,
-    height: 24,
+    width: 30,
+    height: 30,
     alignItems: "center",
     justifyContent: "center",
   },
   iconGlyph: {
-    fontSize: 18,
-    lineHeight: 18,
+    fontSize: 20,
+    lineHeight: 20,
     fontFamily: sansFont,
     fontWeight: "600",
   },
@@ -2114,16 +3237,16 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   iconHomeBase: {
-    width: 14,
-    height: 10,
+    width: 16,
+    height: 11,
     borderWidth: 2,
     borderTopWidth: 0,
   },
   iconBook: {
-    width: 16,
-    height: 18,
+    width: 18,
+    height: 20,
     borderWidth: 2,
-    borderRadius: 3,
+    borderRadius: 4,
     justifyContent: "center",
     alignItems: "flex-start",
     paddingLeft: 4,
@@ -2134,10 +3257,10 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   iconEnvelope: {
-    width: 18,
-    height: 13,
+    width: 20,
+    height: 14,
     borderWidth: 2,
-    borderRadius: 2,
+    borderRadius: 3,
   },
   iconEnvelopeFlapLeft: {
     position: "absolute",

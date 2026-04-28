@@ -1,0 +1,92 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.98145,0.96817,0.95273,1.00000",
+      "display-p3:0.95532,0.94177,0.85034,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "blur-material" : 0.5,
+      "hidden" : false,
+      "layers" : [
+        {
+          "image-name" : "SyllabusToCalendar-C_03_page.svg",
+          "name" : "SyllabusToCalendar-C_03_page"
+        },
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "SyllabusToCalendar-C_02_calendar.svg",
+          "name" : "SyllabusToCalendar-C_02_calendar"
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "solid" : "display-p3:0.95532,0.94177,0.85034,1.00000"
+          },
+          "hidden" : false,
+          "image-name" : "SyllabusToCalendar-C_01_background.svg",
+          "name" : "SyllabusToCalendar-C_01_background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "hidden" : true,
+      "layers" : [
+        {
+          "image-name" : "SyllabusToCalendar-A_03_page.svg",
+          "name" : "SyllabusToCalendar-A_03_page"
+        },
+        {
+          "image-name" : "SyllabusToCalendar-A_02_calendar.svg",
+          "name" : "SyllabusToCalendar-A_02_calendar",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              -53.0625
+            ]
+          }
+        },
+        {
+          "image-name" : "SyllabusToCalendar-A_01_background.svg",
+          "name" : "SyllabusToCalendar-A_01_background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

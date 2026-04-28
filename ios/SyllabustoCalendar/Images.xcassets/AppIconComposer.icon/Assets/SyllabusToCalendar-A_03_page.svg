@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>
+  <filter id="aPageBlur" x="-10%" y="-10%" width="120%" height="120%">
+    <feGaussianBlur stdDeviation="14"/>
+  </filter>
+  <linearGradient id="aTileShade" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.4"/>
+    <stop offset="1" stop-color="#E6DDBE" stop-opacity="0.4"/>
+  </linearGradient>
+  <linearGradient id="aPaperGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+    <stop offset="1" stop-color="#E6DDBE" stop-opacity="0.45"/>
+  </linearGradient>
+  <linearGradient id="aFoldGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#E6DDBE" stop-opacity="0.0"/>
+    <stop offset="1" stop-color="#9F8E5F" stop-opacity="0.55"/>
+  </linearGradient>
+</defs>
+  <!-- subtle drop under the page -->
+  <g style="filter:url(#aPageBlur)" opacity="0.45">
+    <rect x="100" y="120" width="392" height="500" rx="44" fill="#13301C"/>
+  </g>
+  <!-- page body, with lower-right fold cut away -->
+  <path d="
+    M 132 108
+    L 460 108
+    C 484 108, 500 124, 500 148
+    L 500 504
+    L 360 624
+    L 172 624
+    C 148 624, 132 608, 132 584
+    Z" fill="#F5EFDC"/>
+  <path d="
+    M 132 108
+    L 460 108
+    C 484 108, 500 124, 500 148
+    L 500 504
+    L 360 624
+    L 172 624
+    C 148 624, 132 608, 132 584
+    Z" fill="url(#aPaperGrad)"/>
+  <!-- syllabus lines -->
+  <g fill="#1C4129">
+    <rect x="172" y="172" width="240" height="26" rx="8"/>
+    <rect x="172" y="220" width="280" height="14" rx="7" opacity="0.55"/>
+    <rect x="172" y="248" width="240" height="14" rx="7" opacity="0.55"/>
+    <rect x="172" y="304" width="120" height="18" rx="9" fill="#B8923B"/>
+    <rect x="172" y="340" width="260" height="14" rx="7" opacity="0.55"/>
+    <rect x="172" y="368" width="220" height="14" rx="7" opacity="0.55"/>
+    <rect x="172" y="424" width="140" height="18" rx="9" fill="#B8923B"/>
+    <rect x="172" y="460" width="240" height="14" rx="7" opacity="0.55"/>
+    <rect x="172" y="488" width="180" height="14" rx="7" opacity="0.55"/>
+  </g>
+  <!-- folded corner -->
+  <path d="
+    M 500 504
+    L 360 624
+    L 360 564
+    C 360 532, 380 504, 412 504
+    Z" fill="#E6DDBE"/>
+  <path d="
+    M 500 504
+    L 360 624
+    L 360 564
+    C 360 532, 380 504, 412 504
+    Z" fill="url(#aFoldGrad)"/>
+</svg>

@@ -44,7 +44,12 @@ export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
     );
 
     if (!response.ok) {
-      throw new Error(`Parse request failed: ${response.status}`);
+      const errorBody = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      throw new Error(
+        errorBody?.error || `Parse request failed: ${response.status}`,
+      );
     }
 
     const data = (await response.json()) as ParseApiResponse;
@@ -58,10 +63,11 @@ export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
       items,
       mode: "live",
     };
-  } catch {
-    return {
-      items: buildDemoParseResults(file),
-      mode: "demo",
-    };
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : "The uploaded syllabus could not be parsed.",
+    );
   }
 }
