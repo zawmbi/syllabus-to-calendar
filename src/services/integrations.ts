@@ -1,6 +1,7 @@
 import { Linking } from "react-native";
 
 import { integrationBaseUrl } from "../config";
+import type { SessionCredentials } from "../types";
 
 export type IntegrationStatus = {
   googleConnected: boolean;
@@ -10,7 +11,9 @@ export type IntegrationStatus = {
   notionDatabaseTitle: string | null;
 };
 
-export async function fetchIntegrationStatus(sessionId: string) {
+export async function fetchIntegrationStatus(
+  credentials: SessionCredentials,
+): Promise<IntegrationStatus> {
   const baseUrl = integrationBaseUrl();
 
   if (!baseUrl) {
@@ -20,11 +23,16 @@ export async function fetchIntegrationStatus(sessionId: string) {
       notionWorkspaceName: null,
       notionDatabaseId: null,
       notionDatabaseTitle: null,
-    } satisfies IntegrationStatus;
+    };
   }
 
   const response = await fetch(
-    `${baseUrl}/integrations/status?sessionId=${encodeURIComponent(sessionId)}`,
+    `${baseUrl}/integrations/status?sessionId=${encodeURIComponent(credentials.sessionId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${credentials.token}`,
+      },
+    },
   );
 
   if (!response.ok) {
@@ -34,32 +42,38 @@ export async function fetchIntegrationStatus(sessionId: string) {
   return (await response.json()) as IntegrationStatus;
 }
 
-export async function beginGoogleOAuth(sessionId: string) {
+export async function beginGoogleOAuth(credentials: SessionCredentials) {
   const baseUrl = integrationBaseUrl();
 
   if (!baseUrl) {
     throw new Error("Set EXPO_PUBLIC_PARSE_API_BASE_URL before connecting Google.");
   }
 
-  await Linking.openURL(
-    `${baseUrl}/oauth/google/start?sessionId=${encodeURIComponent(sessionId)}`,
-  );
+  const params = new URLSearchParams({
+    sessionId: credentials.sessionId,
+    token: credentials.token,
+  });
+
+  await Linking.openURL(`${baseUrl}/oauth/google/start?${params.toString()}`);
 }
 
-export async function beginNotionOAuth(sessionId: string) {
+export async function beginNotionOAuth(credentials: SessionCredentials) {
   const baseUrl = integrationBaseUrl();
 
   if (!baseUrl) {
     throw new Error("Set EXPO_PUBLIC_PARSE_API_BASE_URL before connecting Notion.");
   }
 
-  await Linking.openURL(
-    `${baseUrl}/oauth/notion/start?sessionId=${encodeURIComponent(sessionId)}`,
-  );
+  const params = new URLSearchParams({
+    sessionId: credentials.sessionId,
+    token: credentials.token,
+  });
+
+  await Linking.openURL(`${baseUrl}/oauth/notion/start?${params.toString()}`);
 }
 
 export async function linkNotionDatabase(
-  sessionId: string,
+  credentials: SessionCredentials,
   databaseLink: string,
 ) {
   const baseUrl = integrationBaseUrl();
@@ -72,8 +86,12 @@ export async function linkNotionDatabase(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${credentials.token}`,
     },
-    body: JSON.stringify({ sessionId, databaseLink }),
+    body: JSON.stringify({
+      sessionId: credentials.sessionId,
+      databaseLink,
+    }),
   });
 
   if (!response.ok) {

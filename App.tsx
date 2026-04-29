@@ -9,6 +9,7 @@ import {
   Animated,
   AppState,
   LayoutAnimation,
+  Linking,
   UIManager,
   Platform,
   Pressable,
@@ -40,7 +41,13 @@ import {
   purchaseSubscription,
   restoreSubscription,
 } from "./src/services/purchases";
-import type { ExportTarget, ImportedFile, ParsedItem } from "./src/types";
+import { createServerSession } from "./src/services/session";
+import type {
+  ExportTarget,
+  ImportedFile,
+  ParsedItem,
+  SessionCredentials,
+} from "./src/types";
 
 const palette = {
   background: "#F5F0E6",
@@ -65,6 +72,25 @@ type RoadmapTab = (typeof roadmapTabs)[number];
 
 const navTabs = ["home", "premium", "help", "feedback"] as const;
 type NavTab = (typeof navTabs)[number];
+
+const SUPPORT_EMAIL = "support@zawmbi.com";
+const PRIVACY_POLICY_URL = "https://zawmbi.com/syllabus-to-calendar/privacy";
+const TERMS_OF_USE_URL = "https://zawmbi.com/syllabus-to-calendar/terms";
+const SUBSCRIPTION_DISCLOSURE =
+  "Subscription auto-renews monthly until canceled. Cancel anytime from your Apple ID Subscriptions at least 24 hours before the renewal date. Payment is charged to your Apple ID at confirmation of purchase.";
+
+async function openExternalUrl(url: string) {
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert("Link", "Could not open this link.");
+      return;
+    }
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert("Link", "Could not open this link.");
+  }
+}
 
 const sansFont = Platform.select({
   ios: "Avenir Next",
@@ -94,10 +120,6 @@ const redesignColors = {
   gold: "#D9B25A",
   goldDeep: "#B8923B",
 } as const;
-
-function createSessionId() {
-  return `session-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
-}
 
 function inferTypeLabel(name?: string, mimeType?: string | null) {
   if (mimeType?.includes("pdf") || name?.toLowerCase().endsWith(".pdf")) {
@@ -555,22 +577,6 @@ function NavIcon({ tab, active }: { tab: NavTab; active: boolean }) {
   );
 }
 
-function navTabLabel(tab: NavTab) {
-  if (tab === "home") {
-    return "Home";
-  }
-
-  if (tab === "premium") {
-    return "Premium";
-  }
-
-  if (tab === "help") {
-    return "Help";
-  }
-
-  return "Contact";
-}
-
 function AppContent() {
   const [fontsLoaded] = useFonts({
     FrauncesRegular: require("./node_modules/@expo-google-fonts/fraunces/400Regular/Fraunces_400Regular.ttf"),
@@ -600,7 +606,7 @@ function AppContent() {
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [sessionId] = useState(createSessionId);
+  const [credentials, setCredentials] = useState<SessionCredentials | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
   const [notionDatabaseTitle, setNotionDatabaseTitle] = useState<string | null>(null);
@@ -649,9 +655,39 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    const refreshConnections = async () => {
+    let cancelled = false;
+
+    const mintSession = async () => {
       try {
-        const status = await fetchIntegrationStatus(sessionId);
+        const next = await createServerSession();
+        if (!cancelled) {
+          setCredentials(next);
+        }
+      } catch {
+        if (!cancelled) {
+          setCredentials(null);
+        }
+      }
+    };
+
+    void mintSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!credentials) {
+      setGoogleConnected(false);
+      setNotionConnected(false);
+      setNotionDatabaseTitle(null);
+      return;
+    }
+
+    const refreshConnectionsLocal = async () => {
+      try {
+        const status = await fetchIntegrationStatus(credentials);
         setGoogleConnected(status.googleConnected);
         setNotionConnected(status.notionConnected);
         setNotionDatabaseTitle(status.notionDatabaseTitle);
@@ -662,13 +698,13 @@ function AppContent() {
       }
     };
 
-    void refreshConnections();
-  }, [sessionId]);
+    void refreshConnectionsLocal();
+  }, [credentials]);
 
   useEffect(() => {
     const setupPurchases = async () => {
       try {
-        const configured = await configurePurchases(sessionId);
+        const configured = await configurePurchases();
 
         if (configured) {
           const unlocked = await getPremiumStatus();
@@ -680,7 +716,7 @@ function AppContent() {
     };
 
     void setupPurchases();
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -694,7 +730,7 @@ function AppContent() {
     return () => {
       subscription.remove();
     };
-  }, [sessionId]);
+  }, [credentials]);
 
   const filteredItems = parsedItems.filter((item) => itemMatchesTab(item, roadmapTab));
   const groupedPreviewItems = Object.entries(groupItemsByDate(filteredItems))
@@ -798,10 +834,14 @@ function AppContent() {
   };
 
   const refreshConnections = async () => {
+    if (!credentials) {
+      return;
+    }
+
     setIsRefreshingConnections(true);
 
     try {
-      const status = await fetchIntegrationStatus(sessionId);
+      const status = await fetchIntegrationStatus(credentials);
       setGoogleConnected(status.googleConnected);
       setNotionConnected(status.notionConnected);
       setNotionDatabaseTitle(status.notionDatabaseTitle);
@@ -825,7 +865,7 @@ function AppContent() {
     setIsParsing(true);
 
     try {
-      const result = await parseSyllabus(exampleFile);
+      const result = await parseSyllabus(exampleFile, credentials);
       setParsedItems(result.items);
       setParseMode(result.mode);
       setExpandedItemKeys([]);
@@ -853,7 +893,7 @@ function AppContent() {
         multiple: false,
       });
 
-      if (!result.canceled) {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const nextFile: ImportedFile = {
           name: asset.name || "Syllabus import",
@@ -866,7 +906,7 @@ function AppContent() {
         setIsParsing(true);
 
         try {
-          const parsed = await parseSyllabus(nextFile);
+          const parsed = await parseSyllabus(nextFile, credentials);
           setParsedItems(parsed.items);
           setParseMode(parsed.mode);
           setExpandedItemKeys([]);
@@ -875,24 +915,8 @@ function AppContent() {
           Alert.alert("Schedule", "Could not create the schedule.");
         } finally {
           setIsParsing(false);
-  }
-}
-
-function navTabLabel(tab: NavTab) {
-  if (tab === "home") {
-    return "Home";
-  }
-
-  if (tab === "premium") {
-    return "Premium";
-  }
-
-  if (tab === "help") {
-    return "Help";
-  }
-
-  return "Contact";
-}
+        }
+      }
     } catch {
       Alert.alert("Import", "Please try again.");
     } finally {
@@ -917,7 +941,7 @@ function navTabLabel(tab: NavTab) {
         quality: 1,
       });
 
-      if (!result.canceled) {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const fileName = asset.fileName || "Scanned syllabus";
         const nextFile: ImportedFile = {
@@ -931,7 +955,7 @@ function navTabLabel(tab: NavTab) {
         setIsParsing(true);
 
         try {
-          const parsed = await parseSyllabus(nextFile);
+          const parsed = await parseSyllabus(nextFile, credentials);
           setParsedItems(parsed.items);
           setParseMode(parsed.mode);
           setExpandedItemKeys([]);
@@ -1024,10 +1048,16 @@ function navTabLabel(tab: NavTab) {
         await exportToDeviceCalendar(exportItems);
         Alert.alert("Apple Calendar", "Export complete.");
       } else if (target === "Google Calendar") {
-        await beginGoogleExport(exportItems, sessionId);
+        if (!credentials) {
+          throw new Error("Backend session is not ready yet. Try again in a moment.");
+        }
+        await beginGoogleExport(exportItems, credentials);
         Alert.alert("Google Calendar", "Export complete.");
       } else {
-        await beginNotionExport(exportItems, sessionId);
+        if (!credentials) {
+          throw new Error("Backend session is not ready yet. Try again in a moment.");
+        }
+        await beginNotionExport(exportItems, credentials);
         Alert.alert("Notion", "Export complete.");
       }
     } catch (error) {
@@ -1100,7 +1130,13 @@ function navTabLabel(tab: NavTab) {
               >
                 <View style={styles.homeGradient}>
                   <View style={[styles.homeTopBar, isTablet && styles.homeTopBarTablet]}>
-                    <Pressable style={styles.homeTopIconButton}>
+                    <Pressable
+                      style={styles.homeTopIconButton}
+                      onPress={() => setActiveTab("premium")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open premium subscription"
+                      hitSlop={8}
+                    >
                       <IconUser size={18} color={redesignColors.forest} />
                     </Pressable>
                   </View>
@@ -1126,7 +1162,12 @@ function navTabLabel(tab: NavTab) {
 
                   <View style={[styles.homeUploadWrap, isTablet && styles.homeUploadWrapTablet]}>
                     <View style={styles.homeUploadCard}>
-                      <Pressable onPress={handlePickDocument} style={styles.homeDropZone}>
+                      <Pressable
+                        onPress={handlePickDocument}
+                        style={styles.homeDropZone}
+                        accessibilityRole="button"
+                        accessibilityLabel="Upload a syllabus PDF, DOCX, or photo"
+                      >
                         <View style={styles.homeDropZoneStripes} />
                         <View style={styles.homeUploadIconTile}>
                           <IconUpload size={24} color={redesignColors.paper} />
@@ -1162,7 +1203,12 @@ function navTabLabel(tab: NavTab) {
                   <View style={[styles.homeRecentSection, isTablet && styles.homeRecentSectionTablet]}>
                     <View style={styles.homeRecentHeader}>
                       <Text style={styles.homeRecentEyebrow}>RECENT</Text>
-                      <Pressable>
+                      <Pressable
+                        onPress={() => setActiveTab("help")}
+                        accessibilityRole="button"
+                        accessibilityLabel="See all recent uploads"
+                        hitSlop={8}
+                      >
                         <Text style={styles.homeRecentSeeAll}>See all</Text>
                       </Pressable>
                     </View>
@@ -1257,7 +1303,13 @@ function navTabLabel(tab: NavTab) {
                           <View style={styles.itemListHeaderText}>
                             <Text style={styles.itemListTitle}>Your schedule</Text>
                           </View>
-                          <Pressable onPress={addManualItem} hitSlop={8} style={styles.addButton}>
+                          <Pressable
+                            onPress={addManualItem}
+                            hitSlop={8}
+                            style={styles.addButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add a new schedule item"
+                          >
                             <View style={styles.addIcon}>
                               <View style={styles.addIconHorizontal} />
                               <View style={styles.addIconVertical} />
@@ -1361,7 +1413,13 @@ function navTabLabel(tab: NavTab) {
                           <View style={styles.itemListHeaderText}>
                             <Text style={styles.itemListTitle}>Your schedule</Text>
                           </View>
-                          <Pressable onPress={addManualItem} hitSlop={8} style={styles.addButton}>
+                          <Pressable
+                            onPress={addManualItem}
+                            hitSlop={8}
+                            style={styles.addButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add a new schedule item"
+                          >
                             <View style={styles.addIcon}>
                               <View style={styles.addIconHorizontal} />
                               <View style={styles.addIconVertical} />
@@ -1470,6 +1528,11 @@ function navTabLabel(tab: NavTab) {
                     <Pressable
                       onPress={() => handleExport(selectedTarget)}
                       disabled={Boolean(exportBlockedReason) || isExporting}
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        disabled: Boolean(exportBlockedReason) || isExporting,
+                      }}
+                      accessibilityLabel={`Export to ${selectedTarget}`}
                       style={({ pressed }) => [
                         styles.primaryButton,
                         styles.exportButton,
@@ -1518,7 +1581,12 @@ function navTabLabel(tab: NavTab) {
                           <Pressable
                             onPress={async () => {
                               try {
-                                await beginGoogleOAuth(sessionId);
+                                if (!credentials) {
+                                  throw new Error(
+                                    "Backend session is not ready yet. Try again in a moment.",
+                                  );
+                                }
+                                await beginGoogleOAuth(credentials);
                               } catch (error) {
                                 Alert.alert(
                                   "Google Calendar",
@@ -1528,6 +1596,9 @@ function navTabLabel(tab: NavTab) {
                                 );
                               }
                             }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Connect Google Calendar"
+                            hitSlop={8}
                           >
                             <Text style={styles.connectionAction}>Connect</Text>
                           </Pressable>
@@ -1542,7 +1613,12 @@ function navTabLabel(tab: NavTab) {
                           <Pressable
                             onPress={async () => {
                               try {
-                                await beginNotionOAuth(sessionId);
+                                if (!credentials) {
+                                  throw new Error(
+                                    "Backend session is not ready yet. Try again in a moment.",
+                                  );
+                                }
+                                await beginNotionOAuth(credentials);
                               } catch (error) {
                                 Alert.alert(
                                   "Notion",
@@ -1552,6 +1628,9 @@ function navTabLabel(tab: NavTab) {
                                 );
                               }
                             }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Connect Notion"
+                            hitSlop={8}
                           >
                             <Text style={styles.connectionAction}>Connect</Text>
                           </Pressable>
@@ -1567,7 +1646,12 @@ function navTabLabel(tab: NavTab) {
 
                       <View style={styles.connectionRow}>
                         <Text style={styles.connectionLabel}>Refresh status</Text>
-                        <Pressable onPress={refreshConnections}>
+                        <Pressable
+                          onPress={refreshConnections}
+                          accessibilityRole="button"
+                          accessibilityLabel="Refresh integration status"
+                          hitSlop={8}
+                        >
                           <Text style={styles.connectionAction}>
                             {isRefreshingConnections ? "Loading..." : "Refresh"}
                           </Text>
@@ -1578,7 +1662,13 @@ function navTabLabel(tab: NavTab) {
                     {isPremiumUnlocked ? (
                       <View style={styles.connectionRow}>
                         <Text style={styles.connectionLabel}>Include breaks and holidays</Text>
-                        <Pressable onPress={() => setIncludeBreaks((current) => !current)}>
+                        <Pressable
+                          onPress={() => setIncludeBreaks((current) => !current)}
+                          accessibilityRole="switch"
+                          accessibilityLabel="Toggle academic breaks and holidays"
+                          accessibilityState={{ checked: includeBreaks }}
+                          hitSlop={8}
+                        >
                           <Text style={styles.connectionAction}>
                             {includeBreaks ? "On" : "Off"}
                           </Text>
@@ -1601,10 +1691,17 @@ function navTabLabel(tab: NavTab) {
                               style={styles.editorInput}
                             />
                             <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Link this Notion database"
                               onPress={async () => {
                                 try {
+                                  if (!credentials) {
+                                    throw new Error(
+                                      "Backend session is not ready yet. Try again in a moment.",
+                                    );
+                                  }
                                   const result = await linkNotionDatabase(
-                                    sessionId,
+                                    credentials,
                                     notionDatabaseLink,
                                   );
                                   setNotionDatabaseTitle(result.databaseTitle);
@@ -1641,7 +1738,12 @@ function navTabLabel(tab: NavTab) {
                             <Pressable
                               onPress={async () => {
                                 try {
-                                  await beginNotionOAuth(sessionId);
+                                  if (!credentials) {
+                                  throw new Error(
+                                    "Backend session is not ready yet. Try again in a moment.",
+                                  );
+                                }
+                                await beginNotionOAuth(credentials);
                                 } catch (error) {
                                   Alert.alert(
                                     "Notion",
@@ -1688,9 +1790,17 @@ function navTabLabel(tab: NavTab) {
                     <Text style={styles.benefitText}>Automatic breaks and holiday detection</Text>
                     <Text style={styles.benefitText}>Future attendance tools</Text>
                   </View>
-                  <Text style={styles.secondaryInlineNote}>$3.99 per month.</Text>
+                  <Text style={styles.secondaryInlineNote}>
+                    Syllabus to Calendar Pro — $3.99 / month, auto-renewing.
+                  </Text>
                   <Pressable
                     onPress={() => void handleSubscribe()}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isPremiumUnlocked
+                        ? "Subscribed"
+                        : "Start monthly subscription for three dollars and ninety-nine cents"
+                    }
                     style={({ pressed }) => [
                       styles.primaryButton,
                       pressed && styles.primaryButtonPressed,
@@ -1720,6 +1830,8 @@ function navTabLabel(tab: NavTab) {
                         setIsPurchasing(false);
                       }
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Restore previous subscription"
                     style={({ pressed }) => [
                       styles.secondaryButton,
                       pressed && styles.secondaryButtonPressed,
@@ -1727,6 +1839,28 @@ function navTabLabel(tab: NavTab) {
                   >
                     <Text style={styles.secondaryButtonText}>Restore subscription</Text>
                   </Pressable>
+                  <Text style={styles.subscriptionDisclosure}>
+                    {SUBSCRIPTION_DISCLOSURE}
+                  </Text>
+                  <View style={styles.legalLinkRow}>
+                    <Pressable
+                      onPress={() => void openExternalUrl(TERMS_OF_USE_URL)}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open Terms of Use"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.legalLinkText}>Terms of Use</Text>
+                    </Pressable>
+                    <Text style={styles.legalLinkSeparator}>·</Text>
+                    <Pressable
+                      onPress={() => void openExternalUrl(PRIVACY_POLICY_URL)}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open Privacy Policy"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.legalLinkText}>Privacy Policy</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             ) : null}
@@ -1828,9 +1962,39 @@ function navTabLabel(tab: NavTab) {
                     multiline
                   />
                   <Pressable
-                    onPress={() =>
-                      Alert.alert("Feedback", feedbackText ? "Saved." : "Write something first.")
-                    }
+                    onPress={async () => {
+                      const trimmed = feedbackText.trim();
+                      if (!trimmed) {
+                        Alert.alert("Feedback", "Write something first.");
+                        return;
+                      }
+
+                      const subject = encodeURIComponent(
+                        "Syllabus to Calendar — feedback",
+                      );
+                      const body = encodeURIComponent(trimmed);
+                      const mailto = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+
+                      try {
+                        const supported = await Linking.canOpenURL(mailto);
+                        if (!supported) {
+                          Alert.alert(
+                            "Feedback",
+                            `Email ${SUPPORT_EMAIL} from your mail app.`,
+                          );
+                          return;
+                        }
+                        await Linking.openURL(mailto);
+                        setFeedbackText("");
+                      } catch {
+                        Alert.alert(
+                          "Feedback",
+                          `Could not open mail. Please email ${SUPPORT_EMAIL}.`,
+                        );
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Send feedback by email"
                     style={({ pressed }) => [
                       styles.primaryButton,
                       pressed && styles.primaryButtonPressed,
@@ -1838,6 +2002,31 @@ function navTabLabel(tab: NavTab) {
                   >
                     <Text style={styles.primaryButtonText}>Send feedback</Text>
                   </Pressable>
+                  <Text style={styles.feedbackHint}>
+                    Feedback opens your mail app addressed to {SUPPORT_EMAIL}.
+                  </Text>
+                </View>
+                <View style={styles.secondaryPageCard}>
+                  <Text style={styles.secondarySectionTitle}>Legal</Text>
+                  <View style={styles.legalLinkRow}>
+                    <Pressable
+                      onPress={() => void openExternalUrl(PRIVACY_POLICY_URL)}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open Privacy Policy"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.legalLinkText}>Privacy Policy</Text>
+                    </Pressable>
+                    <Text style={styles.legalLinkSeparator}>·</Text>
+                    <Pressable
+                      onPress={() => void openExternalUrl(TERMS_OF_USE_URL)}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open Terms of Use"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.legalLinkText}>Terms of Use</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             ) : null}
@@ -1857,7 +2046,7 @@ function navTabLabel(tab: NavTab) {
               <View style={styles.homeTrustDivider} />
               <View style={styles.homeTrustItem}>
                 <IconCheck size={13} color={redesignColors.inkMute} />
-                <Text style={styles.homeTrustText}>No account</Text>
+                <Text style={styles.homeTrustText}>No sign-up</Text>
               </View>
             </View>
           ) : null}
@@ -1866,6 +2055,9 @@ function navTabLabel(tab: NavTab) {
             <BlurView intensity={18} tint="light" style={[styles.navShell, isTablet && styles.navShellTablet]}>
               <Pressable
                 onPress={() => setActiveTab("home")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "home" }}
+                accessibilityLabel="Home tab"
                 style={[
                   styles.navButton,
                   activeTab === "home" && styles.navButtonActive,
@@ -1887,14 +2079,10 @@ function navTabLabel(tab: NavTab) {
                 </Text>
               </Pressable>
               <Pressable
-                onPress={handlePickPhoto}
-                style={[styles.navButton, isTablet && styles.navButtonTablet]}
-              >
-                <IconSparkleLine size={20} color={redesignColors.inkSoft} />
-                <Text style={styles.navButtonLabel}>Scan</Text>
-              </Pressable>
-              <Pressable
                 onPress={() => setActiveTab("help")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "help" }}
+                accessibilityLabel="Calendar tab"
                 style={[styles.navButton, activeTab === "help" && styles.navButtonActive, isTablet && styles.navButtonTablet]}
               >
                 <IconCalendar
@@ -1912,7 +2100,34 @@ function navTabLabel(tab: NavTab) {
                 </Text>
               </Pressable>
               <Pressable
+                onPress={() => setActiveTab("premium")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "premium" }}
+                accessibilityLabel="Premium tab"
+                style={[
+                  styles.navButton,
+                  activeTab === "premium" && styles.navButtonActive,
+                  isTablet && styles.navButtonTablet,
+                ]}
+              >
+                <IconSparkleLine
+                  size={20}
+                  color={activeTab === "premium" ? redesignColors.paper : redesignColors.inkSoft}
+                />
+                <Text
+                  style={[
+                    styles.navButtonLabel,
+                    activeTab === "premium" && styles.navButtonLabelActive,
+                  ]}
+                >
+                  Premium
+                </Text>
+              </Pressable>
+              <Pressable
                 onPress={() => setActiveTab("feedback")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === "feedback" }}
+                accessibilityLabel="Library tab"
                 style={[
                   styles.navButton,
                   activeTab === "feedback" && styles.navButtonActive,
@@ -3165,6 +3380,38 @@ const styles = StyleSheet.create({
   feedbackInput: {
     minHeight: 140,
     textAlignVertical: "top",
+  },
+  feedbackHint: {
+    marginTop: 10,
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  subscriptionDisclosure: {
+    marginTop: 14,
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  legalLinkRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  legalLinkText: {
+    color: redesignColors.forest,
+    fontFamily: "InterSemiBold",
+    fontSize: 13,
+    textDecorationLine: "underline",
+  },
+  legalLinkSeparator: {
+    color: redesignColors.inkMute,
+    fontFamily: "InterRegular",
+    fontSize: 13,
   },
   navShell: {
     marginHorizontal: 16,

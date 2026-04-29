@@ -1,5 +1,6 @@
 import cors from "cors";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { Client } from "@notionhq/client";
 
@@ -8,7 +9,9 @@ import { exportItemsToGoogleCalendar } from "./googleExport.js";
 import { exportItemsToNotion } from "./notionExport.js";
 import { parseWithOpenAI } from "./openaiParser.js";
 import {
+  authenticate,
   consumePendingState,
+  createSession,
   getSession,
   setPendingState,
   updateGoogleSession,
@@ -18,30 +21,112 @@ import type { ParseRequestBody, ParsedItem } from "./types.js";
 
 const app = express();
 
-app.use(cors());
+app.disable("x-powered-by");
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (config.allowedOrigins.length === 0) {
+      callback(null, true);
+      return;
+    }
+
+    if (config.allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("Origin not allowed by CORS policy"));
+  },
+  credentials: false,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "25mb" }));
+
+const parseLimiter = rateLimit({
+  windowMs: config.parseRateWindowMs,
+  max: config.parseRateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const oauthLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const sessionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+type AuthedRequest = Request & {
+  authedSessionId?: string;
+};
+
+function extractBearer(req: Request) {
+  const header = req.header("authorization") || req.header("Authorization");
+  if (!header) {
+    return "";
+  }
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function requireSessionAuth(req: AuthedRequest, res: Response, next: NextFunction) {
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+  const token = extractBearer(req);
+
+  if (!sessionId || !token) {
+    res.status(401).json({ error: "Missing session credentials" });
+    return;
+  }
+
+  const session = authenticate(sessionId, token);
+  if (!session) {
+    res.status(401).json({ error: "Invalid or expired session" });
+    return;
+  }
+
+  req.authedSessionId = sessionId;
+  next();
+}
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/integrations/status", (req, res) => {
-  const sessionId = String(req.query.sessionId || "");
-
-  if (!sessionId) {
-    res.status(400).json({ error: "Missing sessionId" });
-    return;
-  }
-
-  const session = getSession(sessionId);
-  res.json({
-    googleConnected: Boolean(session.google?.refreshToken),
-    notionConnected: Boolean(session.notion?.accessToken),
-    notionWorkspaceName: session.notion?.workspaceName || null,
-    notionDatabaseId: session.notion?.databaseId || null,
-    notionDatabaseTitle: session.notion?.databaseTitle || null,
-  });
+app.post("/sessions", sessionLimiter, (_req, res) => {
+  const { sessionId, token } = createSession();
+  res.json({ sessionId, token });
 });
+
+app.get(
+  "/integrations/status",
+  sessionLimiter,
+  requireSessionAuth,
+  (req: AuthedRequest, res) => {
+    const sessionId = req.authedSessionId!;
+    const session = getSession(sessionId);
+
+    res.json({
+      googleConnected: Boolean(session?.google?.refreshToken),
+      notionConnected: Boolean(session?.notion?.accessToken),
+      notionWorkspaceName: session?.notion?.workspaceName || null,
+      notionDatabaseId: session?.notion?.databaseId || null,
+      notionDatabaseTitle: session?.notion?.databaseTitle || null,
+    });
+  },
+);
 
 function extractNotionDatabaseId(input: string) {
   const normalized = input.trim();
@@ -56,62 +141,67 @@ function extractNotionDatabaseId(input: string) {
   return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`.toLowerCase();
 }
 
-app.post("/integrations/notion/database", async (req, res) => {
-  try {
-    const sessionId = String(req.body.sessionId || "");
-    const databaseLink = String(req.body.databaseLink || "");
+app.post(
+  "/integrations/notion/database",
+  requireSessionAuth,
+  async (req: AuthedRequest, res) => {
+    try {
+      const sessionId = req.authedSessionId!;
+      const databaseLink = String(req.body.databaseLink || "");
 
-    if (!sessionId || !databaseLink) {
-      res.status(400).json({ error: "Missing sessionId or databaseLink" });
-      return;
+      if (!databaseLink) {
+        res.status(400).json({ error: "Missing databaseLink" });
+        return;
+      }
+
+      const session = getSession(sessionId);
+
+      if (!session?.notion?.accessToken) {
+        res.status(401).json({ error: "Notion account is not connected for this session" });
+        return;
+      }
+
+      const databaseId = extractNotionDatabaseId(databaseLink);
+
+      if (!databaseId) {
+        res.status(400).json({ error: "Could not find a Notion database ID in that link" });
+        return;
+      }
+
+      const notion = new Client({ auth: session.notion.accessToken });
+      const database = await notion.databases.retrieve({ database_id: databaseId });
+      const title =
+        "title" in database && Array.isArray(database.title) && database.title.length
+          ? database.title.map((part) => ("plain_text" in part ? part.plain_text : "")).join("").trim()
+          : "Linked database";
+
+      updateNotionSession(sessionId, {
+        databaseId,
+        databaseTitle: title || "Linked database",
+      });
+
+      res.json({
+        ok: true,
+        databaseId,
+        databaseTitle: title || "Linked database",
+      });
+    } catch (error) {
+      res.status(500).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not verify the Notion database link",
+      });
     }
+  },
+);
 
-    const session = getSession(sessionId);
-
-    if (!session.notion?.accessToken) {
-      res.status(401).json({ error: "Notion account is not connected for this session" });
-      return;
-    }
-
-    const databaseId = extractNotionDatabaseId(databaseLink);
-
-    if (!databaseId) {
-      res.status(400).json({ error: "Could not find a Notion database ID in that link" });
-      return;
-    }
-
-    const notion = new Client({ auth: session.notion.accessToken });
-    const database = await notion.databases.retrieve({ database_id: databaseId });
-    const title =
-      "title" in database && Array.isArray(database.title) && database.title.length
-        ? database.title.map((part) => ("plain_text" in part ? part.plain_text : "")).join("").trim()
-        : "Linked database";
-
-    updateNotionSession(sessionId, {
-      databaseId,
-      databaseTitle: title || "Linked database",
-    });
-
-    res.json({
-      ok: true,
-      databaseId,
-      databaseTitle: title || "Linked database",
-    });
-  } catch (error) {
-    res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not verify the Notion database link",
-    });
-  }
-});
-
-app.get("/oauth/google/start", (req, res) => {
+app.get("/oauth/google/start", oauthLimiter, (req, res) => {
   const sessionId = String(req.query.sessionId || "");
+  const token = String(req.query.token || "");
 
-  if (!sessionId) {
-    res.status(400).send("Missing sessionId");
+  if (!sessionId || !token || !authenticate(sessionId, token)) {
+    res.status(401).send("Invalid session credentials");
     return;
   }
 
@@ -138,7 +228,7 @@ app.get("/oauth/google/start", (req, res) => {
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
-app.get("/oauth/google/callback", async (req, res) => {
+app.get("/oauth/google/callback", oauthLimiter, async (req, res) => {
   try {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
@@ -187,11 +277,12 @@ app.get("/oauth/google/callback", async (req, res) => {
   }
 });
 
-app.get("/oauth/notion/start", (req, res) => {
+app.get("/oauth/notion/start", oauthLimiter, (req, res) => {
   const sessionId = String(req.query.sessionId || "");
+  const token = String(req.query.token || "");
 
-  if (!sessionId) {
-    res.status(400).send("Missing sessionId");
+  if (!sessionId || !token || !authenticate(sessionId, token)) {
+    res.status(401).send("Invalid session credentials");
     return;
   }
 
@@ -214,7 +305,7 @@ app.get("/oauth/notion/start", (req, res) => {
   res.redirect(`https://api.notion.com/v1/oauth/authorize?${params.toString()}`);
 });
 
-app.get("/oauth/notion/callback", async (req, res) => {
+app.get("/oauth/notion/callback", oauthLimiter, async (req, res) => {
   try {
     const code = String(req.query.code || "");
     const state = String(req.query.state || "");
@@ -266,87 +357,100 @@ app.get("/oauth/notion/callback", async (req, res) => {
   }
 });
 
-app.post("/parse-syllabus", async (req, res) => {
-  try {
-    const body = req.body as ParseRequestBody;
+app.post(
+  "/parse-syllabus",
+  parseLimiter,
+  requireSessionAuth,
+  async (req: AuthedRequest, res) => {
+    try {
+      const body = req.body as ParseRequestBody;
 
-    if (!body.fileName || !body.mimeType || !body.fileBase64) {
-      res.status(400).json({ error: "Missing fileName, mimeType, or fileBase64" });
-      return;
+      if (!body.fileName || !body.mimeType || !body.fileBase64) {
+        res.status(400).json({ error: "Missing fileName, mimeType, or fileBase64" });
+        return;
+      }
+
+      const items = await parseWithOpenAI({
+        fileName: body.fileName,
+        mimeType: body.mimeType,
+        fileBase64: body.fileBase64,
+      });
+
+      res.json({ items });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unknown parse error",
+      });
     }
+  },
+);
 
-    const items = await parseWithOpenAI({
-      fileName: body.fileName,
-      mimeType: body.mimeType,
-      fileBase64: body.fileBase64,
-    });
+app.post(
+  "/exports/google",
+  requireSessionAuth,
+  async (req: AuthedRequest, res) => {
+    try {
+      const sessionId = req.authedSessionId!;
+      const items = req.body.items as ParsedItem[];
 
-    res.json({ items });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown parse error",
-    });
-  }
-});
+      if (!Array.isArray(items) || !items.length) {
+        res.status(400).json({ error: "Missing export items" });
+        return;
+      }
 
-app.post("/exports/google", async (req, res) => {
-  try {
-    const items = req.body.items as ParsedItem[];
-    const sessionId = String(req.body.sessionId || "");
+      const session = getSession(sessionId);
 
-    if (!Array.isArray(items) || !items.length || !sessionId) {
-      res.status(400).json({ error: "Missing export items or sessionId" });
-      return;
+      if (!session?.google?.refreshToken) {
+        res.status(401).json({ error: "Google account is not connected for this session" });
+        return;
+      }
+
+      await exportItemsToGoogleCalendar(items, session.google.refreshToken);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Google export failed",
+      });
     }
+  },
+);
 
-    const session = getSession(sessionId);
+app.post(
+  "/exports/notion",
+  requireSessionAuth,
+  async (req: AuthedRequest, res) => {
+    try {
+      const sessionId = req.authedSessionId!;
+      const items = req.body.items as ParsedItem[];
 
-    if (!session.google?.refreshToken) {
-      res.status(401).json({ error: "Google account is not connected for this session" });
-      return;
+      if (!Array.isArray(items) || !items.length) {
+        res.status(400).json({ error: "Missing export items" });
+        return;
+      }
+
+      const session = getSession(sessionId);
+
+      if (!session?.notion?.accessToken) {
+        res.status(401).json({ error: "Notion account is not connected for this session" });
+        return;
+      }
+
+      const databaseId = session.notion.databaseId || config.notionDatabaseId;
+
+      if (!databaseId) {
+        res.status(400).json({ error: "No Notion database has been linked for this session" });
+        return;
+      }
+
+      await exportItemsToNotion(items, session.notion.accessToken, databaseId);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Notion export failed",
+      });
     }
-
-    await exportItemsToGoogleCalendar(items, session.google.refreshToken);
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Google export failed",
-    });
-  }
-});
-
-app.post("/exports/notion", async (req, res) => {
-  try {
-    const items = req.body.items as ParsedItem[];
-    const sessionId = String(req.body.sessionId || "");
-
-    if (!Array.isArray(items) || !items.length || !sessionId) {
-      res.status(400).json({ error: "Missing export items or sessionId" });
-      return;
-    }
-
-    const session = getSession(sessionId);
-
-    if (!session.notion?.accessToken) {
-      res.status(401).json({ error: "Notion account is not connected for this session" });
-      return;
-    }
-
-    const databaseId = session.notion.databaseId || config.notionDatabaseId;
-
-    if (!databaseId) {
-      res.status(400).json({ error: "No Notion database has been linked for this session" });
-      return;
-    }
-
-    await exportItemsToNotion(items, session.notion.accessToken, databaseId);
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Notion export failed",
-    });
-  }
-});
+  },
+);
 
 app.listen(config.port, () => {
   console.log(`Syllabus backend listening on http://localhost:${config.port}`);

@@ -1,3 +1,8 @@
+export type SessionCredentials = {
+  sessionId: string;
+  token: string;
+};
+
 export type ImportKind = "document" | "photo";
 export type ExportTarget = "Google Calendar" | "Apple Calendar" | "Notion";
 export type ParsedItemType = "Homework" | "Exam" | "Lab / Discussion" | "Break";
