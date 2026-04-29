@@ -79,6 +79,16 @@ const TERMS_OF_USE_URL = "https://zawmbi.com/syllabus-to-calendar/terms";
 const SUBSCRIPTION_DISCLOSURE =
   "Subscription auto-renews monthly until canceled. Cancel anytime from your Apple ID Subscriptions at least 24 hours before the renewal date. Payment is charged to your Apple ID at confirmation of purchase.";
 
+let _itemIdCounter = 0;
+function nextItemId() {
+  _itemIdCounter += 1;
+  return `pi_${Date.now().toString(36)}_${_itemIdCounter}`;
+}
+
+function withItemIds<T extends { _id?: string }>(items: T[]) {
+  return items.map((item) => (item._id ? item : { ...item, _id: nextItemId() }));
+}
+
 async function openExternalUrl(url: string) {
   try {
     const supported = await Linking.canOpenURL(url);
@@ -764,15 +774,20 @@ function AppContent() {
       ]
     : [];
 
-  const keyForItem = (item: ParsedItem) => `${item.title}__${item.date}__${item.type}`;
+  const keyForItem = (item: ParsedItem) =>
+    item._id || `${item.title}__${item.date}__${item.type}`;
 
-  const findItemIndex = (item: ParsedItem) =>
-    parsedItems.findIndex(
+  const findItemIndex = (item: ParsedItem) => {
+    if (item._id) {
+      return parsedItems.findIndex((parsedItem) => parsedItem._id === item._id);
+    }
+    return parsedItems.findIndex(
       (parsedItem) =>
         parsedItem.title === item.title &&
         parsedItem.date === item.date &&
         parsedItem.type === item.type,
     );
+  };
 
   const updateParsedItem = (index: number, updates: Partial<ParsedItem>) => {
     setParsedItems((current) =>
@@ -796,7 +811,7 @@ function AppContent() {
   };
 
   const addManualItem = () => {
-    const newItem: ParsedItem =
+    const baseItem: ParsedItem =
       roadmapTab === "Assignments"
         ? {
             title: "New assignment",
@@ -818,6 +833,7 @@ function AppContent() {
               notes: "",
           };
 
+    const newItem: ParsedItem = { ...baseItem, _id: nextItemId() };
     const itemKey = keyForItem(newItem);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setParsedItems((current) => [newItem, ...current]);
@@ -866,7 +882,7 @@ function AppContent() {
 
     try {
       const result = await parseSyllabus(exampleFile, credentials);
-      setParsedItems(result.items);
+      setParsedItems(withItemIds(result.items));
       setParseMode(result.mode);
       setExpandedItemKeys([]);
     } catch {
@@ -907,7 +923,7 @@ function AppContent() {
 
         try {
           const parsed = await parseSyllabus(nextFile, credentials);
-          setParsedItems(parsed.items);
+          setParsedItems(withItemIds(parsed.items));
           setParseMode(parsed.mode);
           setExpandedItemKeys([]);
         } catch {
@@ -956,7 +972,7 @@ function AppContent() {
 
         try {
           const parsed = await parseSyllabus(nextFile, credentials);
-          setParsedItems(parsed.items);
+          setParsedItems(withItemIds(parsed.items));
           setParseMode(parsed.mode);
           setExpandedItemKeys([]);
         } catch {

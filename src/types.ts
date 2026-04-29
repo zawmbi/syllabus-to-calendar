@@ -12,6 +12,8 @@ export type ParsedItem = {
   date: string;
   type: ParsedItemType;
   notes?: string;
+  /** Client-only stable id, assigned when items enter app state. Never sent to the API. */
+  _id?: string;
 };
 
 export type ImportedFile = {
