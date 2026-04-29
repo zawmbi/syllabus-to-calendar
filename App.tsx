@@ -2224,7 +2224,6 @@ const styles = StyleSheet.create({
   pageColumnHome: {
     maxWidth: "100%",
     gap: 0,
-    flex: 1,
     justifyContent: "flex-start",
   },
   pageColumnTablet: {
@@ -2322,7 +2321,6 @@ const styles = StyleSheet.create({
   },
   homeGradient: {
     width: "100%",
-    minHeight: "100%",
     backgroundColor: redesignColors.paper,
     paddingBottom: 32,
   },
