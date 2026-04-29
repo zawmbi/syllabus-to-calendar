@@ -2224,6 +2224,8 @@ const styles = StyleSheet.create({
   pageColumnHome: {
     maxWidth: "100%",
     gap: 0,
+    flex: 1,
+    justifyContent: "flex-start",
   },
   pageColumnTablet: {
     maxWidth: 980,
