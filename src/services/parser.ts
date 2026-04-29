@@ -2,13 +2,16 @@ import * as FileSystem from "expo-file-system";
 
 import { appConfig } from "../config";
 import { buildDemoParseResults } from "../sampleData";
-import type { ImportedFile, ParseResult, ParsedItem } from "../types";
+import type { ImportedFile, ParseResult, ParsedItem, SessionCredentials } from "../types";
 
 type ParseApiResponse = {
   items?: ParsedItem[];
 };
 
-export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
+export async function parseSyllabus(
+  file: ImportedFile,
+  credentials?: SessionCredentials | null,
+): Promise<ParseResult> {
   if (file.uri.startsWith("demo://")) {
     return {
       items: buildDemoParseResults(file),
@@ -16,7 +19,7 @@ export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
     };
   }
 
-  if (!appConfig.parseApiBaseUrl) {
+  if (!appConfig.parseApiBaseUrl || !credentials) {
     return {
       items: buildDemoParseResults(file),
       mode: "demo",
@@ -34,8 +37,10 @@ export async function parseSyllabus(file: ImportedFile): Promise<ParseResult> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${credentials.token}`,
         },
         body: JSON.stringify({
+          sessionId: credentials.sessionId,
           fileName: file.name,
           mimeType: file.mimeType,
           fileBase64: base64,

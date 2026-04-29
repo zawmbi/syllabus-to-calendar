@@ -42,13 +42,21 @@ describe("parseSyllabus", () => {
     process.env = originalEnv;
   });
 
+  const testCredentials = {
+    sessionId: "s_test",
+    token: "token_test",
+  };
+
   it("uses demo parsing for demo files", async () => {
     const { parseSyllabus } = loadParserModule();
 
-    const result = await parseSyllabus({
-      ...baseFile,
-      uri: "demo://econ-syllabus.pdf",
-    });
+    const result = await parseSyllabus(
+      {
+        ...baseFile,
+        uri: "demo://econ-syllabus.pdf",
+      },
+      testCredentials,
+    );
 
     expect(result.mode).toBe("demo");
     expect(result.items[0]?.title).toBe("econ-syllabus kickoff response");
@@ -58,10 +66,21 @@ describe("parseSyllabus", () => {
   it("falls back to demo parsing when no live parser url is configured", async () => {
     const { parseSyllabus } = loadParserModule();
 
-    const result = await parseSyllabus(baseFile);
+    const result = await parseSyllabus(baseFile, testCredentials);
 
     expect(result.mode).toBe("demo");
     expect(result.items).toHaveLength(10);
+    expect(getReadAsStringAsyncMock()).not.toHaveBeenCalled();
+  });
+
+  it("falls back to demo parsing when no credentials are available", async () => {
+    process.env.EXPO_PUBLIC_PARSE_API_BASE_URL = "https://parse.example.com";
+
+    const { parseSyllabus } = loadParserModule();
+
+    const result = await parseSyllabus(baseFile, null);
+
+    expect(result.mode).toBe("demo");
     expect(getReadAsStringAsyncMock()).not.toHaveBeenCalled();
   });
 
@@ -84,7 +103,7 @@ describe("parseSyllabus", () => {
     }) as jest.Mock;
 
     const { parseSyllabus } = loadParserModule();
-    const result = await parseSyllabus(baseFile);
+    const result = await parseSyllabus(baseFile, testCredentials);
 
     expect(getReadAsStringAsyncMock()).toHaveBeenCalledWith(baseFile.uri, {
       encoding: "base64",
@@ -93,6 +112,9 @@ describe("parseSyllabus", () => {
       "https://parse.example.com/parse-syllabus",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${testCredentials.token}`,
+        }),
       }),
     );
     expect(result).toEqual({
@@ -101,7 +123,7 @@ describe("parseSyllabus", () => {
     });
   });
 
-  it("falls back to demo parsing when the parser api fails", async () => {
+  it("propagates the api error when the parser api fails", async () => {
     process.env.EXPO_PUBLIC_PARSE_API_BASE_URL = "https://parse.example.com";
     getReadAsStringAsyncMock().mockResolvedValue("base64-payload");
     global.fetch = jest.fn().mockResolvedValue({
@@ -111,7 +133,7 @@ describe("parseSyllabus", () => {
     }) as jest.Mock;
 
     const { parseSyllabus } = loadParserModule();
-    await expect(parseSyllabus(baseFile)).rejects.toThrow(
+    await expect(parseSyllabus(baseFile, testCredentials)).rejects.toThrow(
       "Parse request failed: 500",
     );
   });

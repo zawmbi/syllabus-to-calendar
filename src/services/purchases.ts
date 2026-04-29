@@ -20,7 +20,7 @@ function hasActiveEntitlement(customerInfo: CustomerInfo) {
   return Boolean(customerInfo.entitlements.active[entitlementId]?.isActive);
 }
 
-export async function configurePurchases(appUserID: string) {
+export async function configurePurchases() {
   const apiKey = getRevenueCatApiKey();
 
   if (!apiKey) {
@@ -30,8 +30,8 @@ export async function configurePurchases(appUserID: string) {
   const configured = await Purchases.isConfigured();
 
   if (!configured) {
-    Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-    Purchases.configure({ apiKey, appUserID });
+    Purchases.setLogLevel(LOG_LEVEL.WARN);
+    Purchases.configure({ apiKey });
   }
 
   return true;

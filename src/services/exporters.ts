@@ -2,12 +2,21 @@ import * as Calendar from "expo-calendar";
 import { Platform } from "react-native";
 
 import { appConfig } from "../config";
-import type { ParsedItem } from "../types";
+import type { ParsedItem, SessionCredentials } from "../types";
 
 function buildDateWindow(rawDate: string) {
   const start = new Date(`${rawDate}T09:00:00`);
   const end = new Date(`${rawDate}T10:00:00`);
   return { start, end };
+}
+
+function getDeviceTimeZone() {
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return resolved || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 async function getWritableCalendarId() {
@@ -44,12 +53,15 @@ export async function exportToDeviceCalendar(items: ParsedItem[]) {
       startDate: start,
       endDate: end,
       notes: item.notes || item.type,
-      timeZone: "America/Chicago",
+      timeZone: getDeviceTimeZone(),
     });
   }
 }
 
-export async function beginGoogleExport(items: ParsedItem[], sessionId: string) {
+export async function beginGoogleExport(
+  items: ParsedItem[],
+  credentials: SessionCredentials,
+) {
   if (!appConfig.googleExportUrl) {
     throw new Error("Google export needs the backend connection to be configured.");
   }
@@ -58,16 +70,23 @@ export async function beginGoogleExport(items: ParsedItem[], sessionId: string) 
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${credentials.token}`,
     },
-    body: JSON.stringify({ items, sessionId }),
+    body: JSON.stringify({ items, sessionId: credentials.sessionId }),
   });
 
   if (!response.ok) {
-    throw new Error(`Google export failed: ${response.status}`);
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(errorBody?.error || `Google export failed: ${response.status}`);
   }
 }
 
-export async function beginNotionExport(items: ParsedItem[], sessionId: string) {
+export async function beginNotionExport(
+  items: ParsedItem[],
+  credentials: SessionCredentials,
+) {
   if (!appConfig.notionExportUrl) {
     throw new Error("Notion export endpoint is not configured");
   }
@@ -76,11 +95,15 @@ export async function beginNotionExport(items: ParsedItem[], sessionId: string) 
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${credentials.token}`,
     },
-    body: JSON.stringify({ items, sessionId }),
+    body: JSON.stringify({ items, sessionId: credentials.sessionId }),
   });
 
   if (!response.ok) {
-    throw new Error(`Notion export failed: ${response.status}`);
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(errorBody?.error || `Notion export failed: ${response.status}`);
   }
 }

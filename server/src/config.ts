@@ -10,6 +10,17 @@ function required(name: string) {
   return value;
 }
 
+function parseList(value: string | undefined) {
+  if (!value) {
+    return [] as string[];
+  }
+
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   port: Number(process.env.PORT || 8787),
   openAiApiKey: process.env.OPENAI_API_KEY?.trim() || "",
@@ -28,5 +39,10 @@ export const config = {
     "http://localhost:8787/oauth/notion/callback",
   notionToken: process.env.NOTION_TOKEN?.trim() || "",
   notionDatabaseId: process.env.NOTION_DATABASE_ID?.trim() || "",
+  allowedOrigins: parseList(process.env.ALLOWED_ORIGINS),
+  sessionStorePath:
+    process.env.SESSION_STORE_PATH?.trim() || "./.data/sessions.json",
+  parseRateMax: Number(process.env.PARSE_RATE_MAX || 30),
+  parseRateWindowMs: Number(process.env.PARSE_RATE_WINDOW_MS || 60_000),
   require,
 };
