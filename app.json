@@ -15,7 +15,11 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow access to photos so you can import a scanned syllabus image.",
+        "NSCameraUsageDescription": "Allow camera access so you can take a photo of a printed syllabus.",
         "NSCalendarsUsageDescription": "Allow calendar access so the app can add syllabus dates to your calendar.",
+        "NSCalendarsFullAccessUsageDescription": "Allow calendar access so the app can add syllabus dates to your calendar.",
+        "NSRemindersUsageDescription": "Reminders access is not used by this app, but the calendar module requires this entry.",
+        "NSRemindersFullAccessUsageDescription": "Reminders access is not used by this app, but the calendar module requires this entry.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
