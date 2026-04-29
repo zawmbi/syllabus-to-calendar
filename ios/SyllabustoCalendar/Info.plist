@@ -57,8 +57,14 @@
     <string>Allow calendar access so the app can add syllabus dates to your calendar.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Allow calendar access so the app can add syllabus dates to your calendar.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Allow camera access so you can take a photo of a printed syllabus.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow access to photos so you can import a scanned syllabus image.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Reminders access is not used by this app, but the calendar module requires this entry.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Reminders access is not used by this app, but the calendar module requires this entry.</string>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>
