@@ -1749,7 +1749,7 @@ function AppContent() {
                         ) : (
                           <>
                             <Text style={styles.helperText}>
-                              Connect Notion first, then paste a database link here.
+                              Connect your preferred Notion account first, then paste a database link here.
                             </Text>
                             <Pressable
                               onPress={async () => {
